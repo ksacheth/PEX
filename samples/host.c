@@ -20,5 +20,7 @@ int main() {
     int arg = 42;
     tee_enter(enc, &arg);
 
+    tee_destroy(enc);
+
     return 0;
 }

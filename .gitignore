@@ -1,2 +1,6 @@
 *.so
+*.dSYM/
+*.o
+*.a
+*.out
 samples/host
