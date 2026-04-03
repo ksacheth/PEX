@@ -14,6 +14,9 @@ int tee_enter(tee_enclave_t *enclave, void *args);
 // Exit the enclave
 void tee_exit(tee_enclave_t *enclave);
 
+// Destroy the enclave
+void tee_destroy(tee_enclave_t *enc);
+
 const unsigned char* tee_get_hash(tee_enclave_t *enclave);
 
 #endif
