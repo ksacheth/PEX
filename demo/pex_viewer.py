@@ -16,8 +16,8 @@ except ModuleNotFoundError:
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LIBPEX_PATH = ROOT_DIR / "libpex" / "libpex.so"
 ASSET_PATH = ROOT_DIR / "demo" / "assets" / "protected_image.enc.hex"
-MAP_SIZE = 4096
-IMAGE_SCALE = 14
+MAP_SIZE = 2097152
+IMAGE_SCALE = 1
 XOR_KEY = b"PEX-DEMO-KEY"
 PEX_POLICY_OWNER_THREAD_ONLY = 1
 
@@ -136,58 +136,119 @@ def load_protected_ppm(asset_path: Path) -> bytes:
     hex_blob = "".join(line.strip() for line in asset_path.read_text(encoding="utf-8").splitlines())
     encrypted = bytes.fromhex(hex_blob)
     decrypted = xor_bytes(encrypted, XOR_KEY)
-    if not decrypted.startswith(b"P3\n"):
-        raise RuntimeError("decrypted asset is not a PPM image")
+    if not (decrypted.startswith(b"P3\n") or decrypted.startswith(b"P6\n")):
+        raise RuntimeError("decrypted asset is not a PPM image (expected P3 or P6)")
     if len(decrypted) > MAP_SIZE:
-        raise RuntimeError("decrypted asset exceeds mapped PEX page")
+        raise RuntimeError("decrypted asset exceeds mapped PEX region")
     return decrypted
 
 
-def generate_locked_placeholder(width: int = 16, height: int = 16) -> bytes:
-    rows = []
+def generate_locked_placeholder(width: int = 64, height: int = 64) -> bytes:
+    """Generate a lock-icon placeholder as a P6 binary PPM."""
+    pixel_data = bytearray()
+    cx, cy = width // 2, height // 2
     for y in range(height):
         for x in range(width):
-            if (x + y) % 2 == 0:
+            # Subtle dark checkerboard background
+            if (x // 4 + y // 4) % 2 == 0:
                 r, g, b = (20, 28, 46)
             else:
-                r, g, b = (36, 42, 64)
+                r, g, b = (26, 34, 54)
 
-            if 4 <= x <= 11 and 3 <= y <= 12:
-                r, g, b = (132, 138, 156)
-            if 5 <= x <= 10 and 7 <= y <= 12:
+            # Lock body (centered rectangle)
+            bw, bh = width // 4, height // 4
+            bx0, by0 = cx - bw // 2, cy
+            bx1, by1 = cx + bw // 2, cy + bh
+            if bx0 <= x <= bx1 and by0 <= y <= by1:
                 r, g, b = (228, 184, 69)
-            if 6 <= x <= 9 and 3 <= y <= 6 and (x in (6, 9) or y == 3):
-                r, g, b = (228, 184, 69)
-            if (x, y) in {(7, 9), (8, 9), (7, 10), (8, 10)}:
+
+            # Lock shackle (arc above body)
+            sw = bw // 2
+            sh = bh
+            sdx = x - cx
+            sdy = y - by0
+            dist = (sdx * sdx + sdy * sdy) ** 0.5
+            if sdy <= 0 and sw - 3 <= dist <= sw + 3 and abs(sdx) <= sw:
+                r, g, b = (180, 150, 60)
+
+            # Keyhole in body
+            kx, ky = cx, by0 + bh // 3
+            kdist = ((x - kx) ** 2 + (y - ky) ** 2) ** 0.5
+            if kdist <= 3:
                 r, g, b = (45, 50, 74)
-            rows.append(f"{r} {g} {b}")
-    ppm = f"P3\n{width} {height}\n255\n" + "\n".join(rows) + "\n"
-    return ppm.encode("ascii")
+            if kx - 1 <= x <= kx + 1 and ky <= y <= ky + bh // 3:
+                r, g, b = (45, 50, 74)
+
+            pixel_data.extend((r, g, b))
+
+    header = f"P6\n{width} {height}\n255\n".encode("ascii")
+    return header + bytes(pixel_data)
+
+
+def _parse_ppm_header(ppm_bytes: bytes) -> tuple[bytes, int, int, int, int]:
+    """Parse the PPM header and return (magic, width, height, maxval, header_end_offset)."""
+    # Find the end of the header: magic, width, height, maxval each separated by whitespace.
+    # For P6, pixel data starts immediately after the newline following maxval.
+    pos = 0
+    header_tokens: list[bytes] = []
+    while len(header_tokens) < 4:
+        # skip whitespace
+        while pos < len(ppm_bytes) and ppm_bytes[pos:pos + 1] in (b" ", b"\t", b"\n", b"\r"):
+            pos += 1
+        # skip comments
+        if pos < len(ppm_bytes) and ppm_bytes[pos:pos + 1] == b"#":
+            while pos < len(ppm_bytes) and ppm_bytes[pos:pos + 1] != b"\n":
+                pos += 1
+            continue
+        start = pos
+        while pos < len(ppm_bytes) and ppm_bytes[pos:pos + 1] not in (b" ", b"\t", b"\n", b"\r"):
+            pos += 1
+        if pos > start:
+            header_tokens.append(ppm_bytes[start:pos])
+    # After maxval, exactly one whitespace character (usually \n) precedes the pixel data.
+    if pos < len(ppm_bytes) and ppm_bytes[pos:pos + 1] in (b" ", b"\t", b"\n", b"\r"):
+        pos += 1
+    magic = header_tokens[0]
+    width = int(header_tokens[1])
+    height = int(header_tokens[2])
+    maxval = int(header_tokens[3])
+    return magic, width, height, maxval, pos
 
 
 def parse_ppm(ppm_bytes: bytes) -> tuple[int, int, list[tuple[int, int, int]]]:
-    tokens = ppm_bytes.split()
-    if len(tokens) < 4 or tokens[0] != b"P3":
-        raise RuntimeError("PPM payload must be ASCII P3 data")
+    magic, width, height, max_value, data_offset = _parse_ppm_header(ppm_bytes)
 
-    width = int(tokens[1])
-    height = int(tokens[2])
-    max_value = int(tokens[3])
+    if magic not in (b"P3", b"P6"):
+        raise RuntimeError("PPM payload must be P3 (ASCII) or P6 (binary) data")
     if max_value != 255:
         raise RuntimeError(f"unsupported PPM max value: {max_value}")
 
-    pixel_values = [int(token) for token in tokens[4:]]
-    expected_values = width * height * 3
-    if len(pixel_values) < expected_values:
-        # Demo payloads may be truncated by a few channels; pad with the last RGB triplet.
-        missing = expected_values - len(pixel_values)
-        filler = pixel_values[-3:] if len(pixel_values) >= 3 else [0, 0, 0]
-        repeats = (missing + 2) // 3
-        pixel_values.extend((filler * repeats)[:missing])
-    elif len(pixel_values) > expected_values:
-        pixel_values = pixel_values[:expected_values]
+    expected_pixels = width * height
 
-    pixels = [tuple(pixel_values[index:index + 3]) for index in range(0, len(pixel_values), 3)]
+    if magic == b"P6":
+        # Binary format: 3 bytes per pixel starting at data_offset
+        pixel_data = ppm_bytes[data_offset:]
+        expected_bytes = expected_pixels * 3
+        if len(pixel_data) < expected_bytes:
+            pixel_data += b"\x00" * (expected_bytes - len(pixel_data))
+        pixels = [
+            (pixel_data[i], pixel_data[i + 1], pixel_data[i + 2])
+            for i in range(0, expected_pixels * 3, 3)
+        ]
+    else:
+        # ASCII P3 format
+        tokens = ppm_bytes.split()
+        pixel_values = [int(token) for token in tokens[4:]]
+        expected_values = expected_pixels * 3
+        if len(pixel_values) < expected_values:
+            missing = expected_values - len(pixel_values)
+            filler = pixel_values[-3:] if len(pixel_values) >= 3 else [0, 0, 0]
+            repeats = (missing + 2) // 3
+            pixel_values.extend((filler * repeats)[:missing])
+        elif len(pixel_values) > expected_values:
+            pixel_values = pixel_values[:expected_values]
+        pixels = [tuple(pixel_values[i:i + 3]) for i in range(0, len(pixel_values), 3)]
+
     return width, height, pixels
 
 
@@ -195,16 +256,22 @@ def photo_from_ppm(root: tk.Tk, ppm_bytes: bytes, scale: int) -> tk.PhotoImage:
     width, height, pixels = parse_ppm(ppm_bytes)
     image = tk.PhotoImage(master=root, width=width, height=height)
 
-    rows = []
-    for y in range(height):
-        row = []
-        start = y * width
-        for r, g, b in pixels[start:start + width]:
-            row.append(f"#{r:02x}{g:02x}{b:02x}")
-        rows.append("{" + " ".join(row) + "}")
+    # Build row data in batches for better performance with large images
+    batch_size = 64
+    for y_start in range(0, height, batch_size):
+        y_end = min(y_start + batch_size, height)
+        rows = []
+        for y in range(y_start, y_end):
+            row = []
+            start = y * width
+            for r, g, b in pixels[start:start + width]:
+                row.append(f"#{r:02x}{g:02x}{b:02x}")
+            rows.append("{" + " ".join(row) + "}")
+        image.put(" ".join(rows), to=(0, y_start))
 
-    image.put(" ".join(rows))
-    return image.zoom(scale, scale)
+    if scale > 1:
+        return image.zoom(scale, scale)
+    return image
 
 
 class PexViewerApp:
@@ -212,7 +279,7 @@ class PexViewerApp:
         self.root = root
         self.root.title("PEX SofTEE Demo")
         self.root.configure(bg="#0f1726")
-        self.root.geometry("980x680")
+        self.root.geometry("1400x750")
 
         if not LIBPEX_PATH.exists():
             raise RuntimeError(f"libpex shared object not found at {LIBPEX_PATH}")
