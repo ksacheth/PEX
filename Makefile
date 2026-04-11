@@ -1,19 +1,55 @@
-CC = gcc
-CFLAGS = -Wall -g -fPIC -Iinclude -I/opt/homebrew/opt/openssl@3/include
-LDFLAGS = -shared
-LDLIBS = -ldl -L/opt/homebrew/opt/openssl@3/lib
+CC ?= gcc
+CFLAGS ?= -O2 -Wall -Wextra -Ilibpex/include
+LDFLAGS ?=
+PYTHON ?= python3
 
-all: libtee_sim.so enclave.so samples/host
+.PHONY: all lib kernel examples tests demo clean load unload run-demo run-showcase run-tests run-e2e
 
-libtee_sim.so: src/libtee.c src/loader.c src/utils.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) -lcrypto
+all: lib examples tests demo
 
-enclave.so: samples/enclave.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+lib:
+	$(MAKE) -C libpex
 
-samples/host: samples/host.c libtee_sim.so
-	$(CC) -Wall -g -Iinclude -Isrc -o $@ $< -L. -ltee_sim -Wl,-rpath,. -ldl
+kernel:
+	$(MAKE) -C kernel
+
+examples: lib
+	$(CC) $(CFLAGS) -o examples/protected_workload examples/protected_workload.c libpex/libpex.a $(LDFLAGS)
+	$(CC) $(CFLAGS) -pthread -o examples/showcase_blocking examples/showcase_blocking.c libpex/libpex.a $(LDFLAGS)
+
+tests: lib
+	$(CC) $(CFLAGS) -pthread -o tests/test_multithread_violation tests/test_multithread_violation.c libpex/libpex.a $(LDFLAGS)
+	$(CC) $(CFLAGS) -o tests/benchmark_entry_exit tests/benchmark_entry_exit.c libpex/libpex.a $(LDFLAGS)
+
+demo: lib
+	$(PYTHON) -m py_compile demo/pex_viewer.py
+
+load: kernel
+	sudo bash ./scripts/dev_setup.sh
+
+unload:
+	sudo rmmod pex || true
+
+run-demo: all kernel
+	bash ./scripts/run_demo.sh
+
+run-showcase: examples kernel
+	sudo bash ./scripts/dev_setup.sh
+	./examples/showcase_blocking
+
+run-tests: tests kernel
+	sudo bash ./scripts/dev_setup.sh
+	./tests/test_multithread_violation
+	./tests/benchmark_entry_exit
+
+run-e2e: all kernel
+	bash ./scripts/run_all.sh
+
 clean:
-	rm -f libtee_sim.so enclave.so samples/host
-
-.PHONY: all clean
+	$(MAKE) -C libpex clean
+	$(MAKE) -C kernel clean
+	rm -f examples/protected_workload
+	rm -f examples/showcase_blocking
+	rm -f tests/test_multithread_violation
+	rm -f tests/benchmark_entry_exit
+	find demo -name '__pycache__' -type d -prune -exec rm -rf {} +
