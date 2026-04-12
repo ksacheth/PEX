@@ -1,0 +1,46 @@
+# PEX aarch64 QEMU virt defconfig for Buildroot
+#
+# Minimal image with: kernel + pex.ko + libpex + demo apps
+# Target: qemu-system-aarch64 -M virt
+
+# ── Architecture ──
+BR2_aarch64=y
+
+# ── Toolchain ──
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+
+# ── Kernel ──
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.6.87"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PEX_PATH)/configs/linux.config"
+BR2_LINUX_KERNEL_IMAGE_TARGET_CUSTOM=y
+BR2_LINUX_KERNEL_IMAGE_TARGET_NAME="Image"
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+
+# ── Filesystem ──
+BR2_TARGET_ROOTFS_EXT2=y
+BR2_TARGET_ROOTFS_EXT2_SIZE="128M"
+
+# ── System ──
+BR2_TARGET_GENERIC_HOSTNAME="pex-linux"
+BR2_TARGET_GENERIC_ISSUE="PEX Protected Execution Subsystem Demo"
+BR2_TARGET_GENERIC_GETTY_PORT="ttyAMA0"
+BR2_TARGET_GENERIC_GETTY_BAUDRATE_115200=y
+BR2_TARGET_GENERIC_ROOT_PASSWD=""
+BR2_SYSTEM_DHCP="eth0"
+
+# ── Root filesystem overlay ──
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_PEX_PATH)/overlay"
+
+# ── PEX package ──
+BR2_PACKAGE_PEX=y
+
+# ── BusyBox (default is fine, just ensure we have modprobe utils) ──
+BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+
+# ── Python 3 (for pex_viewer.py --self-check) ──
+BR2_PACKAGE_PYTHON3=y
+BR2_PACKAGE_PYTHON3_PY_ONLY=y

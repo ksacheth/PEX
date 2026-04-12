@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# S99pex -- Load PEX kernel module and run validation at boot
+#
+
+case "$1" in
+  start)
+    echo "=== PEX: Loading kernel module ==="
+    /opt/pex/dev_setup.sh
+
+    echo ""
+    echo "=== PEX: Running validation suite ==="
+    /opt/pex/run_validation.sh
+    echo ""
+    echo "=== PEX: Validation complete. Dropping to shell. ==="
+    ;;
+  stop)
+    if grep -q '^pex ' /proc/modules 2>/dev/null; then
+      rmmod pex 2>/dev/null && echo "PEX module unloaded."
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0

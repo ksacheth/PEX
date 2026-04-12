@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_PEX_PATH/package/pex/Config.in"

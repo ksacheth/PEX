@@ -1,6 +1,65 @@
-*.so
-*.dSYM/
+# =============================================================================
+# Build Artifacts
+# =============================================================================
+
+# Object files & libraries
 *.o
 *.a
-*.out
-samples/host
+*.so
+*.ko
+
+# Kernel module build artifacts
+*.mod
+*.mod.c
+*.mod.o
+*.order
+*.symvers
+*.cmd
+*.tmp
+*.tmp_versions/
+.tmp_versions/
+Module.symvers
+modules.order
+
+# Compiled test/example binaries
+examples/protected_workload
+examples/showcase_blocking
+tests/benchmark_entry_exit
+tests/test_multithread_violation
+
+# =============================================================================
+# Buildroot
+# =============================================================================
+
+# Extracted buildroot source tree (regenerate from .tar.xz)
+buildroot/buildroot-*/
+!buildroot/buildroot-*.tar.xz
+
+# Build logs
+buildroot/build.log
+buildroot/build_output.log
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.pyc
+*.pyo
+
+# =============================================================================
+# IDE & Editor
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# =============================================================================
+# Generated / Temporary
+# =============================================================================
+*.img
+*.ext4
+*.cpio
+*.cpio.gz
