@@ -1,0 +1,10 @@
+config BR2_PACKAGE_PEX
+	bool "pex"
+	depends on BR2_LINUX_KERNEL
+	help
+	  PEX: Kernel-Assisted Protected Execution Subsystem.
+
+	  Includes the pex.ko kernel module, libpex userspace library,
+	  example programs, and validation tests.
+
+	  https://github.com/ksacheth/PEX
