@@ -486,6 +486,7 @@ static const struct file_operations pex_fops = {
 static int __init pex_init(void)
 {
     int ret;
+    struct device *pex_device;
 
     hash_init(g_ctx_table);
 

@@ -38,6 +38,7 @@ buildroot/buildroot-*/
 # Build logs
 buildroot/build.log
 buildroot/build_output.log
+buildroot/.host-shims/
 
 # =============================================================================
 # Python
