@@ -7,6 +7,8 @@
 PEX_VERSION = 1.0
 PEX_SITE = $(realpath $(BR2_EXTERNAL_PEX_PATH)/..)
 PEX_SITE_METHOD = local
+# Avoid syncing Buildroot's own output tree back into the package source copy.
+PEX_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = --exclude /buildroot
 PEX_LICENSE = GPL-2.0
 PEX_INSTALL_STAGING = NO
 PEX_INSTALL_TARGET = YES
@@ -22,7 +24,7 @@ endef
 
 # ── Userspace library ────────────────────────────────────────────────────────
 define PEX_BUILD_LIBPEX
-	$(TARGET_CC) $(TARGET_CFLAGS) -fPIC -Iinclude -c \
+	$(TARGET_CC) $(TARGET_CFLAGS) -fPIC -I$(@D)/libpex/include -c \
 		-o $(@D)/libpex/src/pex.o \
 		$(@D)/libpex/src/pex.c
 	$(TARGET_AR) rcs $(@D)/libpex/libpex.a $(@D)/libpex/src/pex.o

@@ -6,6 +6,9 @@
 #include <linux/types.h>
 #else
 #include <sys/ioctl.h>
+#if defined(__linux__)
+#include <linux/types.h>
+#else
 #include <stdint.h>
 typedef uint8_t  __u8;
 typedef uint16_t __u16;
@@ -13,6 +16,7 @@ typedef uint32_t __u32;
 typedef uint64_t __u64;
 typedef int32_t  __s32;
 typedef int64_t  __s64;
+#endif
 #endif
 
 #define PEX_DEVICE_NAME "pex"
