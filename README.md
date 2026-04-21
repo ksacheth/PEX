@@ -1,36 +1,53 @@
-# PEX: Kernel-Assisted Protected Execution Subsystem
+# PEX SofTEE: Kernel-Assisted Protected Execution Subsystem
 
-PEX is a software trusted execution environment prototype that adds fine-grained, kernel-enforced execution isolation inside a single process. It combines a Linux kernel module, a small user-space runtime, console validation programs, and a Tkinter demo that reveals a protected image only while the owning thread is inside protected mode.
+PEX is a software trusted execution environment prototype for Linux. It adds a kernel-enforced protected execution context inside a single process by combining:
 
-The implementation is intentionally operating-system-centric:
+- a kernel module that exposes `/dev/pex`
+- a small C runtime library in `libpex/`
+- console examples and tests
+- a Tkinter viewer demo
+- a Buildroot package and QEMU image for end-to-end validation
 
-- Protected memory is allocated by the kernel and exposed through `/dev/pex`.
-- Page faults are used to gate access to mapped memory outside active protected execution.
-- Entry and exit are explicit `ioctl` transitions enforced by the kernel.
-- Thread ownership is enforced with `PEX_POLICY_OWNER_THREAD_ONLY`.
-- Runtime state is observable through `/proc/pex_stats` and per-context counters.
+The design is intentionally operating-system-centric:
 
-## What The Demo Shows
+- protected memory is kernel-owned and mapped through `/dev/pex`
+- `ioctl` transitions control context create, enter, exit, destroy, and info queries
+- mapped pages fault when the context is inactive or the wrong thread touches them
+- `PEX_POLICY_OWNER_THREAD_ONLY` enforces owner-thread entry
+- `/proc/pex_stats` exposes global and per-context counters
 
-- The window starts in a locked state with a placeholder image.
-- `Enter Protected Mode` calls `pex_enter()`, decrypts a bundled PPM payload into the protected page, copies it into a display buffer, and reveals the image.
-- `Exit Protected Mode` wipes the protected buffer, calls `pex_exit()`, and returns the window to the locked state.
-- `Rogue Thread Access` spawns a secondary thread that attempts `pex_enter()` on the same context; the kernel denies it and fault counters increase.
-- The console showcase demonstrates real blocked memory access by touching the mapped page outside protected mode and observing `SIGSEGV` or `SIGBUS`.
+## What This Project Actually Demonstrates
 
-This is a protected-reveal simulation, not hardware-backed secure display or screenshot prevention.
+PEX demonstrates kernel-assisted intra-process isolation, not hardware-backed trusted execution.
+
+- The console showcase proves that touching the mapped region while inactive triggers a real fault.
+- The runtime only allows the owning thread to enter a protected context when owner-thread policy is enabled.
+- The kernel tracks entries, exits, faults, and protected time.
+- The Tkinter viewer ties those transitions to a visible "locked" and "revealed" image flow.
+
+The viewer is a protected-reveal demo, not a secure display pipeline:
+
+- the bundled image asset is decrypted in user space during startup
+- on `pex_enter()`, the plaintext image bytes are copied into the protected mapping
+- the UI then copies those bytes into a normal display buffer for rendering
+- on `pex_exit()`, the protected buffer and display buffer are wiped and the placeholder returns
+
+This means the demo is useful for showing protected execution state and fault-gated memory, but it is not screenshot-resistant and it does not keep the full display path inside protected memory.
 
 ## Repository Layout
 
-- `kernel/`: `pex.ko` kernel module and `Makefile`
-- `libpex/`: C runtime API as both `libpex.a` and `libpex.so`
-- `examples/`: protected workload and blocked-memory showcase
-- `tests/`: cross-thread policy test and enter/exit benchmark
-- `demo/`: Tkinter viewer and encrypted PPM asset
-- `scripts/`: module/device setup and demo runners
-- `docs/`: report text and live-demo script
+- `kernel/`: `pex.ko` kernel module
+- `libpex/`: C runtime library as `libpex.a` and `libpex.so`
+- `examples/`: protected workload and blocked-access showcase
+- `tests/`: policy validation and enter/exit benchmark
+- `demo/`: Tkinter viewer and protected image asset
+- `scripts/`: local host setup and demo runners
+- `buildroot/`: Buildroot packaging, rootfs overlay, and QEMU boot scripts
+- `docs/`: report and live-demo notes
 
-## Build
+## Host Build
+
+Build the host-side components from the repo root:
 
 ```bash
 make lib
@@ -40,15 +57,23 @@ make tests
 make demo
 ```
 
-Or build everything except the kernel module with:
+Or build everything except the kernel module:
 
 ```bash
 make all
 ```
 
-## Runtime Setup
+Top-level helpers are also available:
 
-Loading the module requires root privileges:
+```bash
+make run-showcase
+make run-tests
+make run-e2e
+```
+
+## Host Runtime Setup
+
+Loading the module requires root:
 
 ```bash
 sudo bash ./scripts/dev_setup.sh
@@ -57,46 +82,70 @@ sudo bash ./scripts/dev_setup.sh
 That script:
 
 - builds `kernel/pex.ko` if needed
-- unloads any previous `pex` module
+- unloads a previous `pex` module when possible
 - inserts the module
 - recreates `/dev/pex`
 - sets device permissions for non-root demos
 
-## Run The Demos
+## Host Demo Flow
 
-Windowed demo on a desktop session:
+Run the windowed viewer on a desktop Linux session:
 
 ```bash
 bash ./scripts/run_demo.sh
 ```
 
-Console showcase of blocked inactive-memory access:
+Run the blocked-access console showcase:
 
 ```bash
 make run-showcase
 ```
 
-Console tests and benchmark:
+Run the console validation tests:
 
 ```bash
 make run-tests
 ```
 
-Full end-to-end script:
+Run the full host-side end-to-end flow:
 
 ```bash
 bash ./scripts/run_all.sh
 ```
 
-Headless validation when no display is available:
+Run the Python viewer self-check when no display is available:
 
 ```bash
 python3 demo/pex_viewer.py --self-check
 ```
 
+## Buildroot And QEMU Flow
+
+This repo also packages PEX into a Buildroot image that boots under QEMU and runs validation automatically through the rootfs overlay init script.
+
+Build the image:
+
+```bash
+./buildroot/build_image.sh
+```
+
+Boot it in QEMU:
+
+```bash
+./buildroot/run_qemu.sh
+```
+
+Boot directly to a shell without the auto-validation path:
+
+```bash
+./buildroot/run_qemu.sh --shell
+```
+
+Inside that environment, the overlay scripts load `pex.ko`, create `/dev/pex`, and run the validation suite from `/opt/pex/`.
+
 ## Observability
 
-The kernel publishes summary state and per-context lines through `/proc/pex_stats`:
+PEX exposes summary and per-context state through `/proc/pex_stats`:
 
 ```text
 live_contexts=1
@@ -105,20 +154,27 @@ total_faults=2
 ctx=1 owner=1234:1234 active=0 entries=1 exits=1 faults=2 ns=123456 size=4096 name=viewer_ctx
 ```
 
-You can also inspect recent kernel fault logs with:
+You can also inspect recent kernel messages:
 
 ```bash
 dmesg | tail -n 50
 ```
 
-## Assumptions
+## Requirements
 
-- Linux with matching kernel headers installed
+For the host workflow:
+
+- Linux with matching kernel headers
+- `make`, a C compiler, and standard build tools
 - root or `sudo` access for module loading
-- Python 3 with Tkinter available
-- no simulation fallback mode in the core design
+- Python 3 with Tkinter for the viewer
+
+For the Buildroot/QEMU workflow:
+
+- `qemu-system-aarch64`
+- the host tools needed by `buildroot/build_image.sh`
 
 ## Documentation
 
-- Project/report writeup: [docs/report.md](/home/ubuntu/OS/PEX/docs/report.md)
-- Live narration and demo checklist: [docs/demo_script.md](/home/ubuntu/OS/PEX/docs/demo_script.md)
+- Project writeup: [docs/report.md](docs/report.md)
+- Demo script: [docs/demo_script.md](docs/demo_script.md)

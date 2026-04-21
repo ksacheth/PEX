@@ -34,6 +34,26 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 ok()    { echo -e "${GREEN}[ OK ]${NC} $*"; }
 err()   { echo -e "${RED}[FAIL]${NC} $*"; }
 
+file_size_bytes() {
+    local path="$1"
+
+    if stat -f '%z' "${path}" >/dev/null 2>&1; then
+        stat -f '%z' "${path}"
+    else
+        stat -c '%s' "${path}"
+    fi
+}
+
+bytes_to_mib() {
+    local bytes="$1"
+    echo $((bytes / 1024 / 1024))
+}
+
+allocated_size_bytes() {
+    local path="$1"
+    echo $(( $(du -k "${path}" | cut -f1) * 1024 ))
+}
+
 ensure_host_shim_dir() {
     if [ -z "${HOST_SHIM_DIR}" ]; then
         HOST_SHIM_DIR="${SCRIPT_DIR}/.host-shims"
@@ -314,6 +334,97 @@ EOF
     ok "Patched host-attr to use Darwin xattr compatibility shims."
 }
 
+patch_darwin_host_acl() {
+    local acl_mk="${BR_DIR}/package/acl/acl.mk"
+    local line=""
+
+    if [ ! -f "${acl_mk}" ]; then
+        return 0
+    fi
+
+    if grep -Fq "HOST_ACL_FIX_DARWIN_XATTR_APIS" "${acl_mk}"; then
+        return 0
+    fi
+
+    : > "${acl_mk}.tmp"
+    while IFS= read -r line; do
+        if [ "${line}" = '$(eval $(host-autotools-package))' ]; then
+            cat <<'EOF' >> "${acl_mk}.tmp"
+define HOST_ACL_FIX_DARWIN_XATTR_APIS
+	{ \
+		printf '%s\n' '#ifdef __APPLE__'; \
+		printf '%s\n' 'static ssize_t darwin_getxattr_compat(const char *path, const char *name, void *value, size_t size) { return getxattr(path, name, value, size, 0, 0); }'; \
+		printf '%s\n' 'static ssize_t darwin_lgetxattr_compat(const char *path, const char *name, void *value, size_t size) { return getxattr(path, name, value, size, 0, XATTR_NOFOLLOW); }'; \
+		printf '%s\n' 'static int darwin_setxattr_compat(const char *path, const char *name, const void *value, size_t size, int flags) { return setxattr(path, name, value, size, 0, flags); }'; \
+		printf '%s\n' 'static int darwin_lsetxattr_compat(const char *path, const char *name, const void *value, size_t size, int flags) { return setxattr(path, name, value, size, 0, flags | XATTR_NOFOLLOW); }'; \
+		printf '%s\n' 'static int darwin_removexattr_compat(const char *path, const char *name) { return removexattr(path, name, 0); }'; \
+		printf '%s\n' 'static ssize_t darwin_fgetxattr_compat(int fd, const char *name, void *value, size_t size) { return fgetxattr(fd, name, value, size, 0, 0); }'; \
+		printf '%s\n' 'static int darwin_fsetxattr_compat(int fd, const char *name, const void *value, size_t size, int flags) { return fsetxattr(fd, name, value, size, 0, flags); }'; \
+		printf '%s\n' '#define getxattr darwin_getxattr_compat'; \
+		printf '%s\n' '#define lgetxattr darwin_lgetxattr_compat'; \
+		printf '%s\n' '#define setxattr darwin_setxattr_compat'; \
+		printf '%s\n' '#define lsetxattr darwin_lsetxattr_compat'; \
+		printf '%s\n' '#define removexattr darwin_removexattr_compat'; \
+		printf '%s\n' '#define fgetxattr darwin_fgetxattr_compat'; \
+		printf '%s\n' '#define fsetxattr darwin_fsetxattr_compat'; \
+		printf '%s\n' '#endif'; \
+	} > $(@D)/darwin_xattr_compat.h
+	for file in \
+		$(@D)/libacl/acl_delete_def_file.c \
+		$(@D)/libacl/acl_extended_fd.c \
+		$(@D)/libacl/acl_extended_file.c \
+		$(@D)/libacl/acl_extended_file_nofollow.c \
+		$(@D)/libacl/acl_get_fd.c \
+		$(@D)/libacl/acl_get_file.c \
+		$(@D)/libacl/acl_set_fd.c \
+		$(@D)/libacl/acl_set_file.c; \
+	do \
+		/usr/bin/perl -0pi -e 's@#include "../darwin_xattr_compat.h"\n@#include <sys/xattr.h>\n#include "../darwin_xattr_compat.h"\n@ unless /sys\/xattr\.h/;' "$$file"; \
+		/usr/bin/perl -0pi -e 's@(^#\s*include <sys/xattr\.h>\n)@$$1#include "../darwin_xattr_compat.h"\n@m unless /darwin_xattr_compat\.h/;' "$$file"; \
+	done
+	/usr/bin/perl -0pi -e 's@\n\t-Wl,--version-script,[^\n]+\\\n@@g' $(@D)/Makefile
+endef
+HOST_ACL_PRE_BUILD_HOOKS += HOST_ACL_FIX_DARWIN_XATTR_APIS
+
+EOF
+        fi
+        printf '%s\n' "${line}" >> "${acl_mk}.tmp"
+    done < "${acl_mk}"
+
+    mv "${acl_mk}.tmp" "${acl_mk}"
+    ok "Patched host-acl to use Darwin xattr compatibility shims."
+}
+
+patch_darwin_host_fakeroot() {
+    local fakeroot_mk="${BR_DIR}/package/fakeroot/fakeroot.mk"
+    local line=""
+
+    if [ ! -f "${fakeroot_mk}" ]; then
+        return 0
+    fi
+
+    if grep -Fq "HOST_FAKEROOT_FIX_DARWIN_GUID_TYPE" "${fakeroot_mk}"; then
+        return 0
+    fi
+
+    : > "${fakeroot_mk}.tmp"
+    while IFS= read -r line; do
+        if [ "${line}" = '$(eval $(host-autotools-package))' ]; then
+            cat <<'EOF' >> "${fakeroot_mk}.tmp"
+define HOST_FAKEROOT_FIX_DARWIN_GUID_TYPE
+	grep -Fq '#include <sys/_types/_guid_t.h>' $(@D)/patchattr.h || /usr/bin/perl -0pi -e 's@(#include <sys/mount\.h>\n)@$$1#include <sys/_types/_guid_t.h>\n@' $(@D)/patchattr.h
+endef
+HOST_FAKEROOT_PRE_BUILD_HOOKS += HOST_FAKEROOT_FIX_DARWIN_GUID_TYPE
+
+EOF
+        fi
+        printf '%s\n' "${line}" >> "${fakeroot_mk}.tmp"
+    done < "${fakeroot_mk}"
+
+    mv "${fakeroot_mk}.tmp" "${fakeroot_mk}"
+    ok "Patched host-fakeroot to include Darwin guid_t definitions."
+}
+
 sanitize_path() {
     local entry
     local -a sanitized_entries=()
@@ -589,6 +700,8 @@ if [ "${HOST_OS}" = "Darwin" ]; then
     patch_darwin_host_util_linux_procfs
     patch_darwin_host_e2fsprogs
     patch_darwin_host_attr
+    patch_darwin_host_acl
+    patch_darwin_host_fakeroot
 fi
 
 # ── GCC 15+ workaround ──
@@ -643,7 +756,14 @@ ok "Build successful!"
 echo ""
 info "Output files:"
 echo "  Kernel:  ${KERNEL}  ($(du -h "${KERNEL}" | cut -f1))"
-echo "  RootFS:  ${ROOTFS}  ($(du -h "${ROOTFS}" | cut -f1))"
+ROOTFS_LOGICAL_BYTES="$(file_size_bytes "${ROOTFS}")"
+ROOTFS_ALLOCATED_BYTES="$(allocated_size_bytes "${ROOTFS}")"
+ROOTFS_ALLOCATED_SIZE="$(du -h "${ROOTFS}" | cut -f1)"
+echo "  RootFS:  ${ROOTFS}  (logical $(bytes_to_mib "${ROOTFS_LOGICAL_BYTES}") MiB, allocated ${ROOTFS_ALLOCATED_SIZE})"
+if [ "${ROOTFS_ALLOCATED_BYTES}" -lt "${ROOTFS_LOGICAL_BYTES}" ]; then
+    warn "RootFS may be sparse. Copy it with a method that preserves the full logical file size."
+    warn "Recommended: rsync -aS or a tar stream between machines."
+fi
 echo ""
 info "To boot the image:"
 echo "  ${SCRIPT_DIR}/run_qemu.sh"
