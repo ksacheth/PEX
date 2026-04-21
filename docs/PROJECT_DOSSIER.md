@@ -1,4 +1,5 @@
 # PROJECT DOSSIER: PEX SofTEE (Kernel-Assisted Protected Execution Subsystem)
+
 Evidence refreshed on 2026-09-18 at commit `cdd2ddd`.
 Last verified by me: [AUTHOR TO FILL]
 
@@ -13,6 +14,7 @@ Last verified by me: [AUTHOR TO FILL]
 ---
 
 ## 1. Identity
+
 - **One-line pitch:** A Linux kernel module plus a C runtime that creates a fault-gated protected-execution context inside a single process. An inactive or wrong-thread first touch faults; an already-installed PTE remains process-wide until exit. (`README.md:3`, `kernel/pex_main.c:460-489`)
 - **Repo URL:** https://github.com/ksacheth/PEX (`git remote -v`; also `buildroot/package/pex/Config.in:10`)
 - **Status:** Local only. No hosted deployment; nothing to deploy. It runs in two places:
@@ -26,40 +28,44 @@ Last verified by me: [AUTHOR TO FILL]
 - **Course / context (class, deadline, grading):** I built PEX as a course project.
 
 ### Commit history
-| Commit | Date | What changed (from `git show --stat`) |
-|---|---|---|
-| `b317854` | 2026-03-03 | Initial commit; README only |
-| `55ab537` | 2026-03-03 | Project structure, Makefile, `tee_sim.h` API stubs (pre-pivot design) |
-| `40446fe` | 2026-03-03 | `src/loader.c`: `dlopen` enclave loader + OpenSSL SHA-256 of the enclave file (pre-pivot) |
-| `62f49d5` | 2026-04-03 | `tee_destroy()` added (pre-pivot) |
-| `da05db6` | 2026-04-03 | Merge PR #1 (parent `62f49d5`) |
-| `6fcf5bf` | 2026-04-11 | **Architecture pivot.** Deleted `src/`, `include/`, `samples/*.c`. Added `kernel/pex_main.c` (566 lines), `libpex/`, examples, tests, `demo/pex_viewer.py` (651 lines), `docs/`, `scripts/`. 30 files, +2924/−219 |
-| `8ceb3b8` | 2026-04-11 | Added image assets (`assets/test.jpg`, `assets/test.ppm`, encrypted hex); viewer changes (+159/−47) |
-| `b8c481e` | 2026-04-12 | Buildroot integration: 15 files, +647. Vendored `buildroot-2024.02.12.tar.xz` (5.5 MB) |
-| `6b3e66a` | 2026-04-12 | Merge PR #2 (parent `b8c481e`) |
-| `ec888cb` | 2026-04-19 | "fix for darwin": `build_image.sh` +545 lines of macOS host patches |
-| `8e47eb0` | 2026-04-21 | README rewrite; `build_image.sh` / `run_qemu.sh` rootfs-size and fsck checks |
-| `1685fb4` | 2026-04-21 | Kernel mapping fix: `vmf_insert_pfn` + `VM_PFNMAP`; PTE zap moved outside `ctx->lock`. Showcase now returns failure; viewer path resolution |
-| `6513a83` | 2026-04-21 | Non-Linux fallback types in `pex_uapi.h`; `pex.mk` include/rsync fix; committed binary `samples/host` |
+
+| Commit    | Date       | What changed (from `git show --stat`)                                                                                                                                                                                                                                               |
+| --------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `b317854` | 2026-03-03 | Initial commit; README only                                                                                                                                                                                                                                                         |
+| `55ab537` | 2026-03-03 | Project structure, Makefile, `tee_sim.h` API stubs (pre-pivot design)                                                                                                                                                                                                               |
+| `40446fe` | 2026-03-03 | `src/loader.c`: `dlopen` enclave loader + OpenSSL SHA-256 of the enclave file (pre-pivot)                                                                                                                                                                                           |
+| `62f49d5` | 2026-04-03 | `tee_destroy()` added (pre-pivot)                                                                                                                                                                                                                                                   |
+| `da05db6` | 2026-04-03 | Merge PR #1 (parent `62f49d5`)                                                                                                                                                                                                                                                      |
+| `6fcf5bf` | 2026-04-11 | **Architecture pivot.** Deleted `src/`, `include/`, `samples/*.c`. Added `kernel/pex_main.c` (566 lines), `libpex/`, examples, tests, `demo/pex_viewer.py` (651 lines), `docs/`, `scripts/`. 30 files, +2924/−219                                                                   |
+| `8ceb3b8` | 2026-04-11 | Added image assets (`assets/test.jpg`, `assets/test.ppm`, encrypted hex); viewer changes (+159/−47)                                                                                                                                                                                 |
+| `b8c481e` | 2026-04-12 | Buildroot integration: 15 files, +647. Vendored `buildroot-2024.02.12.tar.xz` (5.5 MB)                                                                                                                                                                                              |
+| `6b3e66a` | 2026-04-12 | Merge PR #2 (parent `b8c481e`)                                                                                                                                                                                                                                                      |
+| `ec888cb` | 2026-04-19 | "fix for darwin": `build_image.sh` +545 lines of macOS host patches                                                                                                                                                                                                                 |
+| `8e47eb0` | 2026-04-21 | README rewrite; `build_image.sh` / `run_qemu.sh` rootfs-size and fsck checks                                                                                                                                                                                                        |
+| `1685fb4` | 2026-04-21 | Kernel mapping fix: `vmf_insert_pfn` + `VM_PFNMAP`; PTE zap moved outside `ctx->lock`. Showcase now returns failure; viewer path resolution                                                                                                                                         |
+| `6513a83` | 2026-04-21 | Non-Linux fallback types in `pex_uapi.h`; `pex.mk` include/rsync fix; committed binary `samples/host`                                                                                                                                                                               |
 | `0ddd59a` | 2026-04-21 | Lifetime and quota patch: fd `.release` teardown, `mmgrab`/`mmdrop` mapping ownership, VMA `.open`/`.close` refcounting, per-process/global quotas, `root:<group>` mode `0660` device. 15 files, +1545/−133. Added `tests/test_lifetime_cleanup.c` and `tests/test_access_limits.c` |
-| `7cf1309` | 2026-04-21 | Removed obsolete review material (`docs/code_review.md`, `docs/demo_script.md`). 4 files, +5/−488 |
+| `7cf1309` | 2026-04-21 | Removed obsolete review material (`docs/code_review.md`, `docs/demo_script.md`). 4 files, +5/−488                                                                                                                                                                                   |
 | `cdd2ddd` | 2026-04-21 | Split-VMA fault-offset fix (`ctx->mapped_start`), a split assertion that can actually fail, quota-recovery retry, create-path cleanup on `copy_to_user` failure, viewer/doc wording. 6 files, +43/−22. **Shares `7cf1309`'s timestamp by design:** it was dated to match its parent |
 
 - **Project scope vs external components:**
-    - Linux kernel APIs (kbuild, `vmalloc_user`, `vmf_insert_pfn`, `zap_vma_ptes`);
-    - Buildroot 2024.02.12 (vendored tarball, `buildroot/build_image.sh:14-17`);
-    - Linux 6.6.87 (`buildroot/configs/pex_aarch64_virt_defconfig:16`);
-    - QEMU, glibc/pthreads, and the Python stdlib (ctypes, tkinter).
+  - Linux kernel APIs (kbuild, `vmalloc_user`, `vmf_insert_pfn`, `zap_vma_ptes`);
+  - Buildroot 2024.02.12 (vendored tarball, `buildroot/build_image.sh:14-17`);
+  - Linux 6.6.87 (`buildroot/configs/pex_aarch64_virt_defconfig:16`);
+  - QEMU, glibc/pthreads, and the Python stdlib (ctypes, tkinter).
   - Source and license of `assets/test.jpg` (6000×3376 JPEG): Unknown. Do not claim.
 
 ## 2. Problem & Users
-- **Problem it solves (as documented):** Operating systems isolate processes from each other. They do not offer a general way to isolate a sensitive region *inside* one process. PEX adds kernel-enforced entry/exit, owner-thread binding, fault-gated memory, and per-context accounting. (`docs/report.md:9-35`)
+
+- **Problem it solves (as documented):** Operating systems isolate processes from each other. They do not offer a general way to isolate a sensitive region _inside_ one process. PEX adds kernel-enforced entry/exit, owner-thread binding, fault-gated memory, and per-context accounting. (`docs/report.md:9-35`)
 - **Explicit non-goal (documented):** "kernel-assisted intra-process isolation, not hardware-backed trusted execution." (`README.md:21`; `docs/report.md:203-209`)
 - **Who uses it:** No evidence of real users anywhere in the repo: no telemetry, no issues referenced, no deployment. The docs frame it for "research, teaching, and demonstration" (`docs/report.md:223`). Actual users/audience: Unknown. Do not claim.
 - **Why I built it:** I built it as a course project; the specific personal motivation is unknown. Do not claim beyond the documented aim to explore "how far an operating-system-only design can go" (`docs/report.md:24`).
 
 ## 3. Architecture
+
 - **Components and how they connect:**
+
 ```
   demo/pex_viewer.py (Tkinter UI) ──ctypes──┐          examples/*.c, tests/*.c
   loads libpex.so (pex_viewer.py:32-47)     │          static-link libpex.a (Makefile:16-22)
@@ -80,6 +86,7 @@ Last verified by me: [AUTHOR TO FILL]
         └─ struct pex_context: vmalloc_user buffer, owner tgid/tid, policy,
            active flag, counters, mapping/VMA info, kref, mutex (pex_main.c:27-49)
 ```
+
 - **Shared ABI:** `libpex/include/pex_uapi.h` is included by both the kernel (`kernel/pex_main.c:22`) and userspace (`libpex/include/pex.h:7`).
   - It defines the ioctls `_IOWR/_IOW('P', 1..5)` (`pex_uapi.h:76-81`).
   - **Drafting check (x86-64 sandbox):** the ctypes mirror in Python matches the C layout on x86-64: both are 64 bytes, with `size` at offset 24. The aarch64 layout was not size-checked, but the viewer `--self-check` passed there. (`experiments/logs/phase1-viewer-self-check.log`)
@@ -128,17 +135,19 @@ Last verified by me: [AUTHOR TO FILL]
   - **Kernel-version compatibility guards:** `vm_flags_set` for kernels ≥6.3 (`pex_main.c:476-480`) and the `class_create` signature for ≥6.4 (`pex_main.c:513-517`).
 
 ## 4. Tech Stack + WHY
-| Layer | Choice (evidence) | Why I chose it | Alternatives I considered / rejected |
-|-------|-------------------|----------------|--------------------------------------|
-| Frontend | Python 3 + Tkinter desktop viewer, stdlib only (`demo/pex_viewer.py:4-14`); binds to C via `ctypes` (`:94-173`) | I chose it to iterate quickly on a visual demonstration while keeping the C runtime as the interface to PEX. (`demo/pex_viewer.py:94-173`) | No specific rejected GUI framework is recorded. Do not claim. |
-| Backend (kernel) | Out-of-tree loadable module in C, built with kbuild (`kernel/Makefile:1-11`). Char device, `ioctl`, `mmap` + custom `vm_operations_struct`, procfs (`kernel/pex_main.c`) | I needed kernel control of mapping faults and PTE revocation; a userspace function call cannot enforce that boundary. (`kernel/pex_main.c:275-286`, `kernel/pex_main.c:381-414`) | Pre-pivot design was a userspace `dlopen` enclave loader with SHA-256 (`src/libtee.c:9-13` in `git:62f49d5`, removed in `git:6fcf5bf`). I abandoned it because it directly called a function pointer in the same address space and `tee_exit()` did not revoke access. (`src/libtee.c:9-26` in `git:62f49d5`) |
-| Userspace runtime | C library `libpex`, built as both `.a` and `.so` (`libpex/Makefile:6-19`); 9 functions (`libpex/include/pex.h:20-29`) | I used one small C API so the C programs and Python bindings could call the same ioctl-based runtime. (`libpex/src/pex.c:17-165`, `demo/pex_viewer.py:94-173`) | No specific rejected runtime API is recorded. Do not claim. |
-| Database | None. All state lives in kernel memory and is lost on module unload (`pex_main.c:548-570`) | N/A | N/A |
-| Infra/Deploy | Buildroot 2024.02.12 external tree (`buildroot/external.desc`, `external.mk`, `package/pex/pex.mk`); aarch64 QEMU `virt` target (`defconfig:7`); `JOBS` defaults to 2 "due to RAM constraints" (`build_image.sh:19`) | I used Buildroot and QEMU's aarch64 `virt` target for a controlled, bootable Linux demonstration environment. (`buildroot/configs/pex_aarch64_virt_defconfig:7-16`, `buildroot/run_qemu.sh:194-202`) Darwin/Homebrew handling proves support code, not my host hardware. (`buildroot/build_image.sh:644-652`) | No recorded evaluation of Yocto, Docker, or x86 QEMU. Do not claim. |
-| Build | GNU Make (root `Makefile`, `libpex/Makefile`) + kbuild. Flags `-O2 -Wall -Wextra` (`Makefile:2`) | Unknown. Do not claim a personal rationale. | CMake/Meson are not used; no recorded comparison. (`Makefile:1-24`, `libpex/Makefile:1-22`) |
-| Other libs | pthreads (`Makefile:18,21`); POSIX signals + `sigsetjmp` (`examples/showcase_blocking.c:1-3`); GCC toolchain from Buildroot | Unknown. Do not claim a personal rationale. | No recorded alternatives. Do not claim. |
+
+| Layer             | Choice (evidence)                                                                                                                                                                                                    | Why I chose it                                                                                                                                                                                                                                                                                                | Alternatives I considered / rejected                                                                                                                                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend          | Python 3 + Tkinter desktop viewer, stdlib only (`demo/pex_viewer.py:4-14`); binds to C via `ctypes` (`:94-173`)                                                                                                      | I chose it to iterate quickly on a visual demonstration while keeping the C runtime as the interface to PEX. (`demo/pex_viewer.py:94-173`)                                                                                                                                                                    | No specific rejected GUI framework is recorded. Do not claim.                                                                                                                                                                                                                                                 |
+| Backend (kernel)  | Out-of-tree loadable module in C, built with kbuild (`kernel/Makefile:1-11`). Char device, `ioctl`, `mmap` + custom `vm_operations_struct`, procfs (`kernel/pex_main.c`)                                             | I needed kernel control of mapping faults and PTE revocation; a userspace function call cannot enforce that boundary. (`kernel/pex_main.c:275-286`, `kernel/pex_main.c:381-414`)                                                                                                                              | Pre-pivot design was a userspace `dlopen` enclave loader with SHA-256 (`src/libtee.c:9-13` in `git:62f49d5`, removed in `git:6fcf5bf`). I abandoned it because it directly called a function pointer in the same address space and `tee_exit()` did not revoke access. (`src/libtee.c:9-26` in `git:62f49d5`) |
+| Userspace runtime | C library `libpex`, built as both `.a` and `.so` (`libpex/Makefile:6-19`); 9 functions (`libpex/include/pex.h:20-29`)                                                                                                | I used one small C API so the C programs and Python bindings could call the same ioctl-based runtime. (`libpex/src/pex.c:17-165`, `demo/pex_viewer.py:94-173`)                                                                                                                                                | No specific rejected runtime API is recorded. Do not claim.                                                                                                                                                                                                                                                   |
+| Database          | None. All state lives in kernel memory and is lost on module unload (`pex_main.c:548-570`)                                                                                                                           | N/A                                                                                                                                                                                                                                                                                                           | N/A                                                                                                                                                                                                                                                                                                           |
+| Infra/Deploy      | Buildroot 2024.02.12 external tree (`buildroot/external.desc`, `external.mk`, `package/pex/pex.mk`); aarch64 QEMU `virt` target (`defconfig:7`); `JOBS` defaults to 2 "due to RAM constraints" (`build_image.sh:19`) | I used Buildroot and QEMU's aarch64 `virt` target for a controlled, bootable Linux demonstration environment. (`buildroot/configs/pex_aarch64_virt_defconfig:7-16`, `buildroot/run_qemu.sh:194-202`) Darwin/Homebrew handling proves support code, not my host hardware. (`buildroot/build_image.sh:644-652`) | No recorded evaluation of Yocto, Docker, or x86 QEMU. Do not claim.                                                                                                                                                                                                                                           |
+| Build             | GNU Make (root `Makefile`, `libpex/Makefile`) + kbuild. Flags `-O2 -Wall -Wextra` (`Makefile:2`)                                                                                                                     | Unknown. Do not claim a personal rationale.                                                                                                                                                                                                                                                                   | CMake/Meson are not used; no recorded comparison. (`Makefile:1-24`, `libpex/Makefile:1-22`)                                                                                                                                                                                                                   |
+| Other libs        | pthreads (`Makefile:18,21`); POSIX signals + `sigsetjmp` (`examples/showcase_blocking.c:1-3`); GCC toolchain from Buildroot                                                                                          | Unknown. Do not claim a personal rationale.                                                                                                                                                                                                                                                                   | No recorded alternatives. Do not claim.                                                                                                                                                                                                                                                                       |
 
 ## 5. Key Features (how each actually works)
+
 - **Feature A: Context lifecycle over `ioctl`.**
   - What: create, destroy, enter, exit, and get info on a named protected context.
   - How: one `unlocked_ioctl` switch (`kernel/pex_main.c:461-477`).
@@ -150,12 +159,12 @@ Last verified by me: [AUTHOR TO FILL]
   - What: a region stays mapped in the process but is only accessible while the context is active.
   - How:
     - Memory comes from `vmalloc_user` (`kernel/pex_main.c:258`) and is inserted lazily, per page, by `vmf_insert_pfn` in the fault handler (`:519-557`).
-    - The handler derives the buffer offset from the start of the *original* mapping, not from the faulting VMA (`:542`), so an `mprotect()`-split mapping still resolves each page to the right buffer page.
+    - The handler derives the buffer offset from the start of the _original_ mapping, not from the faulting VMA (`:542`), so an `mprotect()`-split mapping still resolves each page to the right buffer page.
     - On exit, `zap_vma_ptes` removes the PTEs so the next touch re-enters the fault handler (`:97-128`).
     - The VMA is `VM_DONTCOPY` (not inherited by fork) and `VM_DONTDUMP` (excluded from core dumps) (`:636-638`).
   - Key files: `kernel/pex_main.c`, `libpex/src/pex.c:128-151`.
 - **Feature C: Owner process / owner-thread policy.**
-  - What: only the creating process can enter, map, or destroy. With `PEX_POLICY_OWNER_THREAD_ONLY`, only the creating *thread* can enter.
+  - What: only the creating process can enter, map, or destroy. With `PEX_POLICY_OWNER_THREAD_ONLY`, only the creating _thread_ can enter.
   - How:
     - `owner_tgid` is checked in destroy/enter/mmap (`kernel/pex_main.c:320,362,613`).
     - `owner_tid` is checked in enter only when the policy flag is set (`:367-368`).
@@ -177,7 +186,7 @@ Last verified by me: [AUTHOR TO FILL]
   - How:
     - At startup it reads `demo/assets/protected_image.enc.hex`, hex-decodes it, and XORs it with the static key `b"PEX-DEMO-KEY"` (`pex_viewer.py:20,176-188,335`).
     - On Enter it calls `pex_enter()`, copies the plaintext PPM into the 2 MiB mapping, and copies it back out into a display buffer (`:545-564`).
-    - On Exit it zeroes the mapping *before* `pex_exit()`, then wipes the display buffer (`:566-586`).
+    - On Exit it zeroes the mapping _before_ `pex_exit()`, then wipes the display buffer (`:566-586`).
     - Rogue Thread calls `pex_enter()` from a `threading.Thread` (`:588-605`).
     - The PPM parser is hand-written for P3 and P6 (`:233-297`).
     - Headless mode: `--self-check` (`:674-730`).
@@ -201,7 +210,9 @@ Last verified by me: [AUTHOR TO FILL]
   - Key files: `buildroot/build_image.sh` (776 lines).
 
 ## 6. Data Model
+
 There is no database. Everything below is in-memory kernel state or the ABI.
+
 - **`struct pex_context`** (kernel, `kernel/pex_main.c:27-49`):
   - Identity and ownership: `ctx_id`, `owner_tgid`, `owner_tid`, `policy_flags`, `name[64]`.
   - State and memory: `active`, `size`, `kbuf` (vmalloc_user).
@@ -230,6 +241,7 @@ There is no database. Everything below is in-memory kernel state or the ABI.
   - A mapping holds one context reference per VMA and one `mm_count` reference (`pex_main.c:491-529,561-565`).
 
 ## 7. Key Files Map
+
 - `kernel/pex_main.c` (791 lines): the kernel module. Context table, fd lifetime, ioctls, mmap/fault/VMA references, procfs, init/exit.
 - `kernel/Makefile` (11): kbuild wrapper; `KDIR ?= /lib/modules/$(uname -r)/build`.
 - `libpex/include/pex_uapi.h` (88): kernel↔user ABI (structs, enums, ioctl numbers, quota constants); non-Linux type fallback at `:9-19`.
@@ -260,13 +272,14 @@ There is no database. Everything below is in-memory kernel state or the ABI.
 - `samples/host` (17,984-byte x86-64 ELF): **stale binary from the pre-pivot design.** Its strings reference `libtee_sim.so`, `tee_create`, `./enclave.so`, and build path `/home/ubuntu/OS/SoftTEE`. Nothing builds or uses it. Added in `git:6513a83`.
 
 ## 8. Hardest Problems (STAR format)
+
 The STAR prompts below are project-owner input. The git history provides the evidence candidates.
 
 - **Problem 1: memory was not reliably re-blocked or stable after exit (candidate from `git:1685fb4`).**
   - Evidence of the change:
     - Before `1685fb4`, the fault handler did `get_page(page); vmf->page = page;` and the VMA lacked `VM_PFNMAP`.
     - After it, the handler uses `vmf_insert_pfn()` and the VMA sets `VM_PFNMAP | VM_DONTEXPAND` (`pex_main.c:411-413,477`).
-    - The same commit moved `mmap_write_lock` / `zap_vma_ptes` to *after* `mutex_unlock(&ctx->lock)` (`pex_main.c:275-286`).
+    - The same commit moved `mmap_write_lock` / `zap_vma_ptes` to _after_ `mutex_unlock(&ctx->lock)` (`pex_main.c:275-286`).
     - It also made `showcase_blocking` return 1 on any unexpected result; it previously always returned 0.
   - **CONFIRMED:** Linux v6.6 documents and implements `zap_vma_ptes()` as acting only on `VM_PFNMAP` VMAs (`linux-v6.6/mm/memory.c:1681`, `linux-v6.6/mm/memory.c:1686`). The pre-`1685fb4` VMA lacked that flag, so this source-level analysis establishes that its call would return without zapping PTEs. The commit's lock move removes the previously inverse ctx-mutex → mmap-lock order; this is an ordering correction, not proof that a deadlock occurred in a recorded run (`git:1685fb4`; `kernel/pex_main.c:392`, `kernel/pex_main.c:275`).
   - Situation: I found that the protected mapping needed a more reliable way to insert pages and revoke access after exit. The previous fault path returned a `struct page`, while the revised design uses PFN insertion and marks the VMA as `VM_PFNMAP`; the exit path was also reworked to avoid holding the context mutex while acquiring the mmap write lock.
@@ -275,7 +288,7 @@ The STAR prompts below are project-owner input. The git history provides the evi
   - Result: The blocking behavior became testable and reliable: after exit, a previously accessed page faulted again instead of remaining accessible. The showcase also began returning failure when an expected protection check did not hold.
 - **Problem 2: building Buildroot on macOS (candidate from `git:ec888cb`, `git:8e47eb0`).**
   - Evidence: 545 added lines of Darwin host patches (`build_image.sh:80-640`) and a GCC 15/C23 workaround (`:707-716`).
-    - `run_qemu.sh` handles *sparse* rootfs copies and runs fsck (`run_qemu.sh:158-192`).
+    - `run_qemu.sh` handles _sparse_ rootfs copies and runs fsck (`run_qemu.sh:158-192`).
     - `build_image.sh` warns to copy with `rsync -aS` (`build_image.sh:763-766`).
     - Not measured / not recorded: sparse-copy and fsck handling show that the scripts account for image transfer/integrity, but no repository evidence establishes that images were actually moved between machines.
   - Situation: I needed the Buildroot image workflow to run on macOS, where the original scripts assumed Linux host tools and behavior. (`buildroot/build_image.sh:80-640`)
@@ -294,7 +307,7 @@ The STAR prompts below are project-owner input. The git history provides the evi
   - STAR: Unknown. Do not claim.
 - **Problem 5: a split mapping resolved faults to the wrong buffer page (found in review; fixed in `git:cdd2ddd`).**
   - Evidence of the change:
-    - The lifetime patch added VMA `.open`/`.close` refcounting, which made `mprotect()` splits *supported* rather than rejected, because a split increments and decrements `vma_refs` correctly (`kernel/pex_main.c:559-591`).
+    - The lifetime patch added VMA `.open`/`.close` refcounting, which made `mprotect()` splits _supported_ rather than rejected, because a split increments and decrements `vma_refs` correctly (`kernel/pex_main.c:559-591`).
     - The fault handler still computed `offset = vmf->address - vma->vm_start`. For the upper VMA of a split, `vm_start` is `mapped_start + 4096`, so `offset` became 0 and the kernel installed **buffer page 0** where page 1 belongs.
     - The existing split test read page 1 and discarded the value (`(void)mapping[page_size]`), so it passed either way. `vmalloc_user` returns zeroed pages, so even the aliased read returned 0 and nothing looked wrong.
     - `cdd2ddd` computes `offset = vmf->address - ctx->mapped_start` (`kernel/pex_main.c:542`) and makes the test assert that page 1 does not read back page 0 (`tests/test_lifetime_cleanup.c:113-118`).
@@ -304,7 +317,9 @@ The STAR prompts below are project-owner input. The git history provides the evi
   - Result: split mappings resolve to the correct buffer page, and the regression fails without the fix and passes with it (2026-09-18, Ubuntu 24.04 / Linux 6.8.0-139-generic, aarch64).
 
 ## 9. Tradeoffs & Decisions
+
 Decisions below are **visible in code**. CONFIRMED items have run evidence; the rest are design reasoning.
+
 - **Decision:** loadable out-of-tree module instead of a new syscall or in-tree subsystem (`kernel/Makefile`; `docs/report.md:209`).
   - Gained: **CONFIRMED on the verified host:** PEX was built as an out-of-tree kbuild module and loaded into the already-running kernel; no host-kernel rebuild was performed (`experiments/logs/phase1-make-kernel.log`, `experiments/logs/phase1-device-listing.log`).
   - Gave up: upstream integration; needs matching headers and root.
@@ -339,16 +354,18 @@ Decisions below are **visible in code**. CONFIRMED items have run evidence; the 
   - Why: I used the configured aarch64 QEMU `virt` target for the controlled Buildroot VM demonstration. No comparison with x86 is recorded. (`buildroot/configs/pex_aarch64_virt_defconfig:7-16`, `buildroot/run_qemu.sh:194-202`)
 
 ## 10. Metrics (only real ones)
-| Metric | Value | How measured | When |
-|--------|-------|--------------|------|
-| Avg enter+exit latency | **423.89 ns median** (min 380.56 ns; max 756.35 ns) across seven runs | `tests/benchmark_entry_exit`: seven independent runs of 10,000 `pex_enter`/`pex_exit` pairs timed with `CLOCK_MONOTONIC`; it prints `avg_enter_exit_ns` (`tests/benchmark_entry_exit.c:18,34-53`). No mapping is touched. Sorted raw results: `experiments/logs/phase1-benchmark-sorted-values-corrected.log`. | 2026-09-16, host Linux `6.8.0-40-generic` on a 2-vCPU Parallels aarch64 VM (`experiments/logs/phase0-uname.log`, `experiments/logs/phase0-lscpu.log`, `experiments/logs/phase0-systemd-detect-virt.log`) |
-| Avg enter+first-page-write+exit latency | **2126.75 ns median** (min 1723.79 ns; max 2235.60 ns) across seven runs | P4: a mapped 4096-byte context; 10,000 iterations of `pex_enter` → one-byte write to page 0 → `pex_exit`, timed with `CLOCK_MONOTONIC`. The prior exit zaps the PTE, so each following write takes the valid fault path. Sorted raw results: `experiments/logs/phase2-p4-sorted-values.log`. | 2026-09-16, same host as the row above (`experiments/logs/phase2-p4-sorted-values.log`) |
-| Avg enter+exit latency, re-run at `cdd2ddd` | **343.64 ns median** (341.87 / 343.64 / 345.71) across three runs | Same stock benchmark, three consecutive runs on the `cdd2ddd` build. Single-run spread is not a confidence interval. | 2026-09-18, Ubuntu 24.04 / `6.8.0-139-generic` / aarch64 / 2 vCPU (same Parallels VM as above, but a different kernel build, so do not compare the two rows numerically) |
-| Lines in listed source/script files | about 4,328 lines across kernel, lib, examples, tests, viewer, scripts, and Buildroot files (`wc -l`, see §7) | `wc -l` at `cdd2ddd` | 2026-09-18 |
+
+| Metric                                      | Value                                                                                                         | How measured                                                                                                                                                                                                                                                                                                   | When                                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Avg enter+exit latency                      | **423.89 ns median** (min 380.56 ns; max 756.35 ns) across seven runs                                         | `tests/benchmark_entry_exit`: seven independent runs of 10,000 `pex_enter`/`pex_exit` pairs timed with `CLOCK_MONOTONIC`; it prints `avg_enter_exit_ns` (`tests/benchmark_entry_exit.c:18,34-53`). No mapping is touched. Sorted raw results: `experiments/logs/phase1-benchmark-sorted-values-corrected.log`. | 2026-09-16, host Linux `6.8.0-40-generic` on a 2-vCPU Parallels aarch64 VM (`experiments/logs/phase0-uname.log`, `experiments/logs/phase0-lscpu.log`, `experiments/logs/phase0-systemd-detect-virt.log`) |
+| Avg enter+first-page-write+exit latency     | **2126.75 ns median** (min 1723.79 ns; max 2235.60 ns) across seven runs                                      | P4: a mapped 4096-byte context; 10,000 iterations of `pex_enter` → one-byte write to page 0 → `pex_exit`, timed with `CLOCK_MONOTONIC`. The prior exit zaps the PTE, so each following write takes the valid fault path. Sorted raw results: `experiments/logs/phase2-p4-sorted-values.log`.                   | 2026-09-16, same host as the row above (`experiments/logs/phase2-p4-sorted-values.log`)                                                                                                                  |
+| Avg enter+exit latency, re-run at `cdd2ddd` | **343.64 ns median** (341.87 / 343.64 / 345.71) across three runs                                             | Same stock benchmark, three consecutive runs on the `cdd2ddd` build. Single-run spread is not a confidence interval.                                                                                                                                                                                           | 2026-09-18, Ubuntu 24.04 / `6.8.0-139-generic` / aarch64 / 2 vCPU (same Parallels VM as above, but a different kernel build, so do not compare the two rows numerically)                                 |
+| Lines in listed source/script files         | about 4,328 lines across kernel, lib, examples, tests, viewer, scripts, and Buildroot files (`wc -l`, see §7) | `wc -l` at `cdd2ddd`                                                                                                                                                                                                                                                                                           | 2026-09-18                                                                                                                                                                                               |
 
 Numbers come from experiments/logs (not committed to the repo). They are VM microbenchmarks, not production metrics; always quote them with what they measure.
 
 ## 11. Testing & Quality
+
 - **Tests (what exists):** integration programs only. They all require `pex.ko` loaded and `/dev/pex` present. There is no unit-test framework: no KUnit, kselftest, pytest, or gtest.
   1. `tests/test_multithread_violation.c`
      - Checks: a secondary thread's `pex_enter` returns <0, and `total_faults` increases (`:59-66`).
@@ -409,7 +426,9 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
 - **Static analysis / lint / format config:** none found. No `.clang-format`, `.clang-tidy`, `.editorconfig`, pre-commit, or ruff/flake8/mypy config.
 
 ## 12. Known Limitations & Bugs
+
 **Documented by the project itself:**
+
 - Not hardware-backed. Does not secure the display path or prevent screenshots. Does not mediate syscalls. No multi-process sharing. Relies on a loadable module. (`docs/report.md:238-254`; `README.md:24-27,37-53`)
 - The GUI deobfuscates the asset at startup, and the plaintext is copied out of protected memory into a normal display buffer (`README.md:37-44`; `demo/pex_viewer.py:335,545-564`).
 
@@ -429,11 +448,12 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
 | §9.2 "docs/report.md doesn't exist" | **Stale claim.** The file exists | `docs/report.md` |
 
 **Runtime results (2026-09-16, extended 2026-09-18):**
+
 - **Thread isolation is only enforced on the first touch of each page [CONFIRMED].** In every P1 run, after the owner faulted page 0 in while active, a second thread read page 0 successfully without a new fault; that same thread got SIGSEGV on untouched page 1, and again on page 0 after owner exit. `total_faults` rose only for the two blocked accesses per run (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`). This conflicts with the absolute owner-thread access wording in `docs/report.md:92-97`.
 - **The policy flag only gates enter [CONFIRMED].** With `policy_flags=0`, a secondary thread's enter returned 0, its mapped-memory touch received SIGSEGV, its exit returned -EPERM, and the owner's exit returned 0 in all three P2 runs (`experiments/logs/phase2-p2-run-1.log`, `experiments/logs/phase2-p2-run-2.log`, `experiments/logs/phase2-p2-run-3.log`). The code checks `owner_tid` unconditionally in exit and fault handling (`pex_main.c:255,393`). `docs/report.md:117,130` is therefore a conflict candidate.
 - **Fd-close and process-death cleanup [PRE-PATCH FAILURE CONFIRMED; PATCH RUNTIME VERIFIED].** In all three historical P7 runs, a context created without mapping or destroy remained visible as `live_contexts=1` after the process closed its fd (`experiments/logs/phase2-p7-proc-after-leak-1.log`, `experiments/logs/phase2-p7-proc-after-leak-2.log`, `experiments/logs/phase2-p7-proc-after-leak-3.log`). In historical P3, after SIGKILL of a mapped, active child, `live_contexts=1`, `active_contexts=1`, and `rmmod` failed with "Module pex is in use" (`experiments/logs/phase2-p3-proc-after-kill-1.log`, `experiments/logs/phase2-p3-rmmod-1.log`). On 2026-04-21, the current patch passed the fd-close, active-map `SIGKILL`, and split-VMA scenarios on Ubuntu 24.04 / Linux 6.8.0-139-generic; each restored `live_contexts=0`, `active_contexts=0`, and `rmmod pex` succeeded afterward. The source adds fd `.release`, removes that file’s contexts from the table, deactivates active contexts, zaps mapping PTEs, and replaces the long-lived `mmget` with `mmgrab`/`mmdrop` (`kernel/pex_main.c:72-164,561-619`; `tests/test_lifetime_cleanup.c`). This is not an aarch64 Buildroot/QEMU result.
 - **Mapped-active leak mechanism: outcome confirmed; exact causal chain remains unisolated.** The historical P3 outcome was consistent with an inferred `mmget`/context reference cycle, but the experiment did not independently prove that internal causal chain. The current regression verifies that the observed cleanup failure is fixed on Ubuntu 24.04 / Linux 6.8.0-139-generic; it does not prove the old causal explanation. (`experiments/logs/phase2-p3-run-1.log`, `experiments/logs/phase2-p3-rmmod-1.log`; `kernel/pex_main.c:72-79,491-529,561-565`)
-- **Split-mapping aliasing [FOUND IN REVIEW AND FIXED].** Once the `.open`/`.close` refcount pair made `mprotect()` splits *supported*, the fault handler's `offset = vmf->address - vma->vm_start` made the upper VMA resolve to buffer offset 0, so page 1 aliased page 0 and a write to page 1 corrupted page 0. Fixed in `git:cdd2ddd` by measuring from `ctx->mapped_start` (`kernel/pex_main.c:542`). The old split test read page 1 and discarded the value; the new assertion fails against the previous module and passes against the fix (2026-09-18 run in §11; §8 Problem 5).
+- **Split-mapping aliasing [FOUND IN REVIEW AND FIXED].** Once the `.open`/`.close` refcount pair made `mprotect()` splits _supported_, the fault handler's `offset = vmf->address - vma->vm_start` made the upper VMA resolve to buffer offset 0, so page 1 aliased page 0 and a write to page 1 corrupted page 0. Fixed in `git:cdd2ddd` by measuring from `ctx->mapped_start` (`kernel/pex_main.c:542`). The old split test read page 1 and discarded the value; the new assertion fails against the previous module and passes against the fix (2026-09-18 run in §11; §8 Problem 5).
 - **Device registration error path.** `device_create` failure returns `-ENOMEM` instead of `PTR_ERR` (`kernel/pex_main.c:727-730`).
 - **Unused local. FIXED in `git:cdd2ddd`.** `struct device *pex_device;` was added in `git:ec888cb` and triggered an unused-variable warning under kbuild (`experiments/logs/phase1-make-kernel.log`). It was removed in `cdd2ddd`; the 2026-09-18 build reports no compiler warnings.
 - **`PEX_POLICY_NO_FORK_INHERIT` is a no-op.** `VM_DONTCOPY` is always applied regardless of the flag (`pex_uapi.h:28`; `pex_main.c:477`).
@@ -446,8 +466,10 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
 - **Rootfs has an empty root password and DHCP on eth0** (`pex_aarch64_virt_defconfig:32-33`). Fine for a demo VM; worth knowing.
 - Other bugs I know about: Unknown. Do not claim.
 
-## 13. What This Project Does NOT Have   <-- most important anti-hallucination section
+## 13. What This Project Does NOT Have <-- most important anti-hallucination section
+
 How this list was checked:
+
 - `find` for manifest, container, CI, and env files;
 - `git grep -i` for common technologies across tracked text files;
 - reading every source file at `6513a83`.
@@ -481,6 +503,7 @@ How this list was checked:
 - **No production benchmark history.** Two host microbenchmark result sets are now recorded in §10; they are not production metrics.
 
 ## 14. What I'd Do Differently / Next
+
 - **Scaling plan** (the realistic axis here is "many contexts / many threads", not users): I would replace the single global lookup lock with finer-grained or RCU-based lookup and benchmark many contexts and threads rather than only ioctl latency. The current per-process/global quotas are fixed teaching-prototype bounds, not adaptive production resource governance. (`kernel/pex_main.c:24-29,168-203`, `tests/benchmark_entry_exit.c:27-47`)
   - Facts to reason from:
     - fixed 64-bucket table under one IRQ-saving spinlock (`pex_main.c:24,48-49`);
@@ -498,13 +521,15 @@ How this list was checked:
 - **Documented future work** (not personal opinion): upstreaming, richer ownership policies, syscall filtering, structured fault records, hardware-assisted secure display/memory (`docs/report.md:211-219`).
 
 ## 15. Resume Bullet -> Evidence
-| Resume bullet (exact text) | Evidence (file / metric / demo) |
-|----------------------------|---------------------------------|
-| Built a Linux kernel module and C runtime that use explicit ioctls and page-fault-gated mappings to demonstrate intra-process protected execution. | `kernel/pex_main.c:324-340`, `kernel/pex_main.c:381-485`, `libpex/src/pex.c:17-165` |
+
+| Resume bullet (exact text)                                                                                                                                                                | Evidence (file / metric / demo)                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Built a Linux kernel module and C runtime that use explicit ioctls and page-fault-gated mappings to demonstrate intra-process protected execution.                                        | `kernel/pex_main.c:324-340`, `kernel/pex_main.c:381-485`, `libpex/src/pex.c:17-165`                                                                                                             |
 | Created C validation programs and a Python/Tkinter demo; verified a 423.89 ns median enter/exit ioctl-pair latency and a 2126.75 ns median fault-inclusive path on a Parallels Ubuntu VM. | `demo/pex_viewer.py:94-173`, `experiments/logs/phase1-benchmark-sorted-values-corrected.log`, `experiments/logs/phase2-p4-sorted-values.log`, `experiments/logs/phase0-systemd-detect-virt.log` |
-| Identified and documented limitations through probes, including first-touch-only same-process isolation and context leaks after abnormal process exit. | `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log` |
+| Identified and documented limitations through probes, including first-touch-only same-process isolation and context leaks after abnormal process exit.                                    | `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log`                      |
 
 **Claims the code supports (use as raw material):**
+
 - Linux kernel module exposing a char device with 5 ioctls, `mmap`, a custom page-fault handler, and procfs stats: `kernel/pex_main.c:461-477,519-557,479-513`.
 - Fault-gated memory: PTEs zapped on exit, SIGSEGV on inactive access: `kernel/pex_main.c:97-128,526-531`; `examples/showcase_blocking.c:149-222`.
 - Split-safe mappings: the fault offset is measured from the start of the original mapping, so an `mprotect()` split still resolves each page correctly, with a regression that fails without the fix: `kernel/pex_main.c:542`; `tests/test_lifetime_cleanup.c:113-118`.
@@ -515,6 +540,7 @@ How this list was checked:
 - macOS Buildroot support code exists; no successful run is recorded — do not claim a run. (`buildroot/build_image.sh:80-716`)
 
 **Claims to AVOID unless you add evidence:**
+
 - Any latency or overhead number other than the controlled host measurements in §10.
 - "Secure", "encrypted", or "TEE-grade" without qualification: the asset is XOR-obfuscated with a key stored in source, and there is no hardware backing. Docs use "obfuscated" as of `cdd2ddd`.
 - "Thread-isolated memory": only first-touch enforcement (confirmed in P1, §12).
@@ -522,6 +548,7 @@ How this list was checked:
 - "Production", "users", "deployed".
 
 ## 16. Likely Interview Questions (my prepared answers)
+
 - **Q: Why this stack?**
   - A: I used a kernel module because the kernel controls mapping faults and PTE revocation; userspace calls cannot enforce that boundary. I kept a small C runtime for the ioctl API and used Python/Tkinter plus `ctypes` for quick visual iteration. Buildroot and QEMU's aarch64 `virt` target provided a controlled bootable Linux demonstration environment. (`kernel/pex_main.c:275-286`, `kernel/pex_main.c:381-414`, `libpex/src/pex.c:17-165`, `demo/pex_viewer.py:94-173`, `buildroot/run_qemu.sh:194-202`)
 - **Q: How does the core feature work end to end?**
@@ -545,7 +572,8 @@ How this list was checked:
   - A: I implemented an uncommitted lifetime patch: fd-close cleanup, `mmgrab/mmdrop` mapping ownership, module-exit frees outside the spinlock, and split-safe VMA references. The patch has a source-built regression test but no recorded Linux runtime result yet, so I would run that test under the shipped kernel and lockdep before claiming it fixed P3/P7. The P1 experiment still means I would redesign access control so it is enforced on every access, not only the first fault. (`kernel/pex_main.c:491-529,591-619,684-715`; `tests/test_lifetime_cleanup.c`; `experiments/logs/phase2-p1-run-1.log`)
 
 **Project-specific probes a strict interviewer is likely to ask** (answers distinguish observed facts from project-owner explanations):
-- "While the owner is active, can *another thread* in the same process read the page?"
+
+- "While the owner is active, can _another thread_ in the same process read the page?"
   - Observed fact: in all three P1 trials, after the owner touched page 0, a second thread read it successfully without a new fault. The second thread got SIGSEGV on untouched page 1 and on page 0 after owner exit (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`). My answer: Once the owner has faulted in a page while active, another thread in the same process can read that already-mapped page; untouched pages and pages after exit fault. That is a first-touch-only isolation flaw. (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`)
 - "Why `vmf_insert_pfn` + `VM_PFNMAP` instead of returning `vmf->page`?"
   - Code facts: see `git:1685fb4`. My answer: The buffer is mapped by PFN on demand, and `VM_PFNMAP` makes PTE zapping applicable on exit; the former `vmf->page` path lacked that VMA flag. (`kernel/pex_main.c:411-413`, `kernel/pex_main.c:477`, `linux-v6.6/mm/memory.c:1681-1693`)
@@ -571,11 +599,12 @@ How this list was checked:
   - Code facts: §12 status table. My answer: I do not claim every listed finding was independently reproduced; P1, P3, and P7 are the specific findings backed by experiment logs. (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log`, `experiments/logs/phase2-p7-proc-after-leak-1.log`)
 
 ## 17. Glossary (project-specific terms)
+
 - **PEX / SofTEE (also "SoftTEE"):** the project name: "Protected Execution" subsystem, a software TEE (`README.md:1`; `pex_main.c:576`).
 - **Context (`pex_context`):** kernel object holding a protected buffer, owner ids, policy, active flag, and counters (`pex_main.c:26-46`).
 - **Enter / Exit:** ioctls that flip a context to active or inactive (`PEX_IOCTL_ENTER_CTX` / `EXIT_CTX`, `pex_uapi.h:79-80`).
 - **Owner tgid / tid:** the creating process id and creating thread id (`pex_main.c:117-118`).
-- **`PEX_POLICY_OWNER_THREAD_ONLY`:** policy bit that restricts *enter* to the creating thread (`pex_uapi.h:27`; `pex_main.c:206`).
+- **`PEX_POLICY_OWNER_THREAD_ONLY`:** policy bit that restricts _enter_ to the creating thread (`pex_uapi.h:27`; `pex_main.c:206`).
 - **Fault types:** `MEM_ACCESS` (bad touch), `CROSS_THREAD` (wrong tid on enter/exit), `BAD_STATE` (double enter / exit while inactive), `BAD_OWNER` (wrong process) (`pex_uapi.h:31-37`).
 - **VMA:** a kernel `vm_area_struct`, i.e. one mapped region of a process.
 - **PTE zap:** removing page-table entries (`zap_vma_ptes`) so the next access faults.
@@ -595,28 +624,29 @@ How this list was checked:
 
 ## Appendix: Experiment results
 
-| Probe | Hypothesis | Result (CONFIRMED / REFUTED / INCONCLUSIVE) | Log file |
-|---|---|---|---|
-| P5 first context ID | A first context after a fresh module reload receives ID 2. | **CONFIRMED** — all three fresh-load trials printed `ctx_id=2`. | `experiments/logs/phase2-p5-fresh-run-1.log`, `experiments/logs/phase2-p5-fresh-run-2.log`, `experiments/logs/phase2-p5-fresh-run-3.log` |
-| P1 rogue-thread memory access | A second thread can read an owner-faulted page while active, but faults on an untouched page and after exit. | **CONFIRMED** — page 0 read succeeded without a new fault; page 1 and post-exit page 0 each raised SIGSEGV in all three runs. | `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log` |
-| P2 policy scope | With policy 0, another thread can enter but cannot touch mapped memory or exit. | **CONFIRMED** — enter=0, touch=SIGSEGV, exit=-EPERM, owner exit=0 in all three runs. | `experiments/logs/phase2-p2-run-1.log`, `experiments/logs/phase2-p2-run-2.log`, `experiments/logs/phase2-p2-run-3.log` |
-| P4 fault-inclusive cost | Enter→first-page-write→exit is slower than the stock enter/exit-only benchmark. | **CONFIRMED** — 2126.75 ns median versus 423.89 ns stock median. | `experiments/logs/phase2-p4-sorted-values.log`, `experiments/logs/phase1-benchmark-sorted-values-corrected.log` |
-| P6 unprivileged access and quotas | **Pre-patch:** a non-root user can complete the 4096-byte lifecycle through mode `0666`. **Current patch:** `root:<authorized-group>` mode `0660`, bounded contexts and bytes. | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: dropped UID/GID 65534 cannot open the device; per-process and global count/byte quotas return `-EDQUOT` and recover after close. | Historical logs; `pex_uapi.h:20-24`; `kernel/pex_main.c:168-203`; `tests/test_access_limits.c`; 2026-04-21 VM run in §11 |
-| P7 leaked unmapped context | **Pre-patch:** closing the fd without map/destroy leaves the context live. **Current patch:** `.release` removes the creating file's contexts. | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: fd-close returned to zero live and active contexts. | Historical logs; `kernel/pex_main.c:592-619`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11 |
-| P3 killed mapped-active context | **Pre-patch:** SIGKILL leaves a live context and makes `rmmod` fail. **Current patch:** close teardown deactivates and releases the context, and the test kills an active mapped child. | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: SIGKILL cleanup returned to zero live and active contexts, then `rmmod pex` succeeded. The old causal mechanism remains inconclusive. | Historical logs; `kernel/pex_main.c:592-619`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11 |
+| Probe                             | Hypothesis                                                                                                                                                                              | Result (CONFIRMED / REFUTED / INCONCLUSIVE)                                                                                                                                                                                               | Log file                                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| P5 first context ID               | A first context after a fresh module reload receives ID 2.                                                                                                                              | **CONFIRMED** — all three fresh-load trials printed `ctx_id=2`.                                                                                                                                                                           | `experiments/logs/phase2-p5-fresh-run-1.log`, `experiments/logs/phase2-p5-fresh-run-2.log`, `experiments/logs/phase2-p5-fresh-run-3.log` |
+| P1 rogue-thread memory access     | A second thread can read an owner-faulted page while active, but faults on an untouched page and after exit.                                                                            | **CONFIRMED** — page 0 read succeeded without a new fault; page 1 and post-exit page 0 each raised SIGSEGV in all three runs.                                                                                                             | `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`                   |
+| P2 policy scope                   | With policy 0, another thread can enter but cannot touch mapped memory or exit.                                                                                                         | **CONFIRMED** — enter=0, touch=SIGSEGV, exit=-EPERM, owner exit=0 in all three runs.                                                                                                                                                      | `experiments/logs/phase2-p2-run-1.log`, `experiments/logs/phase2-p2-run-2.log`, `experiments/logs/phase2-p2-run-3.log`                   |
+| P4 fault-inclusive cost           | Enter→first-page-write→exit is slower than the stock enter/exit-only benchmark.                                                                                                         | **CONFIRMED** — 2126.75 ns median versus 423.89 ns stock median.                                                                                                                                                                          | `experiments/logs/phase2-p4-sorted-values.log`, `experiments/logs/phase1-benchmark-sorted-values-corrected.log`                          |
+| P6 unprivileged access and quotas | **Pre-patch:** a non-root user can complete the 4096-byte lifecycle through mode `0666`. **Current patch:** `root:<authorized-group>` mode `0660`, bounded contexts and bytes.          | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: dropped UID/GID 65534 cannot open the device; per-process and global count/byte quotas return `-EDQUOT` and recover after close.      | Historical logs; `pex_uapi.h:20-24`; `kernel/pex_main.c:168-203`; `tests/test_access_limits.c`; 2026-04-21 VM run in §11                 |
+| P7 leaked unmapped context        | **Pre-patch:** closing the fd without map/destroy leaves the context live. **Current patch:** `.release` removes the creating file's contexts.                                          | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: fd-close returned to zero live and active contexts.                                                                                   | Historical logs; `kernel/pex_main.c:592-619`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11                                  |
+| P3 killed mapped-active context   | **Pre-patch:** SIGKILL leaves a live context and makes `rmmod` fail. **Current patch:** close teardown deactivates and releases the context, and the test kills an active mapped child. | **Historical failure CONFIRMED; patch RUNTIME VERIFIED** on Ubuntu 24.04 / Linux 6.8.0-139-generic: SIGKILL cleanup returned to zero live and active contexts, then `rmmod pex` succeeded. The old causal mechanism remains inconclusive. | Historical logs; `kernel/pex_main.c:592-619`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11                                  |
 
 ## Appendix: Static verification triage
 
-| Dossier line | Claim | Verdict | Evidence |
-|---|---|---|---|
-| 25 | `OS/` implies an operating-systems course. | **INCONCLUSIVE from source alone** — directory naming cannot prove course context. | `samples/host` path. |
-| 141 | Darwin/Homebrew code proves an Apple Silicon host. | **INCONCLUSIVE** — code proves Darwin/Homebrew support, not a host platform. | `buildroot/build_image.sh:644-652`; `git:62f49d5`. |
-| 280 | Sparse-copy/fsck code means images were moved between machines. | **INCONCLUSIVE** — it shows defensive handling only. | `buildroot/build_image.sh:763-766`; `buildroot/run_qemu.sh:158-192`. |
-| 302 | The global context-table spinlock causes measurable contention. | **INCONCLUSIVE** — plausible architecture risk, but unmeasured. | `kernel/pex_main.c:48-49`; no multi-context benchmark log. |
-| 315 | Python/ctypes gave faster UI iteration. | **INCONCLUSIVE from source alone** — the rationale is stated in §4. | `demo/pex_viewer.py:94-173`. |
-| 319 | Vendoring Buildroot gives an offline reproducible build. | **INCONCLUSIVE** — tarball is present, but no offline Buildroot build was recorded. | `buildroot/buildroot-2024.02.12.tar.xz`; no corresponding experiment log. |
+| Dossier line | Claim                                                           | Verdict                                                                             | Evidence                                                                  |
+| ------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 25           | `OS/` implies an operating-systems course.                      | **INCONCLUSIVE from source alone** — directory naming cannot prove course context.  | `samples/host` path.                                                      |
+| 141          | Darwin/Homebrew code proves an Apple Silicon host.              | **INCONCLUSIVE** — code proves Darwin/Homebrew support, not a host platform.        | `buildroot/build_image.sh:644-652`; `git:62f49d5`.                        |
+| 280          | Sparse-copy/fsck code means images were moved between machines. | **INCONCLUSIVE** — it shows defensive handling only.                                | `buildroot/build_image.sh:763-766`; `buildroot/run_qemu.sh:158-192`.      |
+| 302          | The global context-table spinlock causes measurable contention. | **INCONCLUSIVE** — plausible architecture risk, but unmeasured.                     | `kernel/pex_main.c:48-49`; no multi-context benchmark log.                |
+| 315          | Python/ctypes gave faster UI iteration.                         | **INCONCLUSIVE from source alone** — the rationale is stated in §4.                 | `demo/pex_viewer.py:94-173`.                                              |
+| 319          | Vendoring Buildroot gives an offline reproducible build.        | **INCONCLUSIVE** — tarball is present, but no offline Buildroot build was recorded. | `buildroot/buildroot-2024.02.12.tar.xz`; no corresponding experiment log. |
 
 ## Appendix: Drafting checklist
+
 1. Resolve every remaining verification tag (search for `VERIFY` in this file).
 2. Set `Last verified by me` after personally reviewing this dossier; it is intentionally the only unresolved project-owner field.
 3. Host run done (2026-09-16, refreshed 2026-09-18); QEMU run still unrecorded.
