@@ -229,4 +229,3 @@ For the Buildroot/QEMU workflow:
 ## Documentation
 
 - Project writeup: [docs/report.md](docs/report.md)
-- Demo script: [docs/demo_script.md](docs/demo_script.md)

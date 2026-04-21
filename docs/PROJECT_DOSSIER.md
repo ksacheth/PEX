@@ -245,7 +245,7 @@ There is no database. Everything below is in-memory kernel state or the ABI.
 - `buildroot/configs/pex_aarch64_virt_defconfig` (46), `buildroot/configs/linux.config` (90): image and kernel config.
 - `buildroot/overlay/etc/init.d/S99pex`, `overlay/opt/pex/dev_setup.sh`, `overlay/opt/pex/run_validation.sh`: boot-time load and validation.
 - `buildroot/buildroot-2024.02.12.tar.xz` (5.5 MB): vendored Buildroot source.
-- `docs/report.md` (263): project write-up. `docs/demo_script.md` (128): live-demo narration. `docs/code_review.md` (301): review with a priority-ordered bug list.
+- `docs/report.md` (263): project write-up.
 - `samples/host` (17,984-byte x86-64 ELF): **stale binary from the pre-pivot design.** Its strings reference `libtee_sim.so`, `tee_create`, `./enclave.so`, and build path `/home/ubuntu/OS/SoftTEE`. Nothing builds or uses it. Added in `git:6513a83`.
 
 ## 8. Hardest Problems (STAR format)
@@ -379,7 +379,7 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
 - Not hardware-backed. Does not secure the display path or prevent screenshots. Does not mediate syscalls. No multi-process sharing. Relies on a loadable module. (`docs/report.md:203-209`; `README.md:21,28-35`)
 - The GUI decrypts the asset at startup, and the plaintext is copied out of protected memory into a normal display buffer (`README.md:28-35`; `demo/pex_viewer.py:335,557-559`).
 
-**Items from `docs/code_review.md`, with status after the uncommitted lifetime patch:**
+**Review items, with status after the lifetime patch:**
 | Item | Status at HEAD | Evidence |
 |---|---|---|
 | §1.1 context leaked if `copy_to_user` fails in create | Still present | `pex_main.c:123-132` |
@@ -526,7 +526,7 @@ How this list was checked:
 - "How did you test the kernel code for races or memory bugs (lockdep, KASAN)?"
   - Code facts: no evidence in repo. My answer: I did not record lockdep, KASAN, or race-detector runs. I used the baseline programs and targeted behavioral probes, so I do not claim formal concurrency validation. (`experiments/logs/phase1-test-multithread-violation.log`, `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p3-run-1.log`)
 - "Which review findings were verified or fixed?"
-  - Code facts: §12 status table. My answer: I do not claim every listed finding was independently reproduced; P1, P3, and P7 are the specific findings backed by experiment logs. (`docs/code_review.md:1-301`, `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log`, `experiments/logs/phase2-p7-proc-after-leak-1.log`)
+  - Code facts: §12 status table. My answer: I do not claim every listed finding was independently reproduced; P1, P3, and P7 are the specific findings backed by experiment logs. (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log`, `experiments/logs/phase2-p7-proc-after-leak-1.log`)
 
 ## 17. Glossary (project-specific terms)
 - **PEX / SofTEE (also "SoftTEE"):** the project name: "Protected Execution" subsystem, a software TEE (`README.md:1`; `pex_main.c:576`).
@@ -567,7 +567,7 @@ How this list was checked:
 
 | Dossier line | Claim | Verdict | Evidence |
 |---|---|---|---|
-| 25 | `OS/` implies an operating-systems course. | **INCONCLUSIVE from source alone** — directory naming cannot prove course context. | `samples/host` path and `docs/code_review.md:9`. |
+| 25 | `OS/` implies an operating-systems course. | **INCONCLUSIVE from source alone** — directory naming cannot prove course context. | `samples/host` path. |
 | 141 | Darwin/Homebrew code proves an Apple Silicon host. | **INCONCLUSIVE** — code proves Darwin/Homebrew support, not a host platform. | `buildroot/build_image.sh:644-652`; `git:62f49d5`. |
 | 280 | Sparse-copy/fsck code means images were moved between machines. | **INCONCLUSIVE** — it shows defensive handling only. | `buildroot/build_image.sh:763-766`; `buildroot/run_qemu.sh:158-192`. |
 | 302 | The global context-table spinlock causes measurable contention. | **INCONCLUSIVE** — plausible architecture risk, but unmeasured. | `kernel/pex_main.c:48-49`; no multi-context benchmark log. |
@@ -581,5 +581,5 @@ How this list was checked:
 4. Decide how to handle the **doc-vs-code CONFLICT candidates** before an interview:
    - `docs/report.md:117,130` vs `pex_main.c:255,393` (thread-policy scope);
    - `docs/report.md:92-97` vs first-touch-only enforcement;
-   - "decrypts on enter" in `docs/report.md:231`, `docs/demo_script.md:52`, `demo/pex_viewer.py:563` vs decryption at startup (`demo/pex_viewer.py:335`; `README.md:30`).
+   - the viewer log says it "decrypted the PPM payload" on entry (`demo/pex_viewer.py:563`), while decryption happens at startup (`demo/pex_viewer.py:335`; `README.md:39`).
 5. Update "Last verified by me" and the commit hash whenever code changes.
