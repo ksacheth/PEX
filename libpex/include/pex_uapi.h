@@ -22,6 +22,11 @@ typedef int64_t  __s64;
 #define PEX_DEVICE_NAME "pex"
 #define PEX_DEVICE_PATH "/dev/pex"
 #define PEX_MAX_NAME_LEN 64
+#define PEX_MAX_CONTEXT_BYTES (16ULL * 1024 * 1024)
+#define PEX_MAX_CONTEXTS_PER_TGID 8U
+#define PEX_MAX_BYTES_PER_TGID (16ULL * 1024 * 1024)
+#define PEX_MAX_CONTEXTS_GLOBAL 64U
+#define PEX_MAX_BYTES_GLOBAL (64ULL * 1024 * 1024)
 
 enum pex_policy_flags {
     PEX_POLICY_OWNER_THREAD_ONLY = (1u << 0),

@@ -7,6 +7,7 @@
 set -e
 
 MODULE_PATH="/lib/modules/pex.ko"
+PEX_DEVICE_GROUP="${PEX_DEVICE_GROUP:-root}"
 
 if [ ! -f "${MODULE_PATH}" ]; then
     echo "ERROR: pex.ko not found at ${MODULE_PATH}" >&2
@@ -31,6 +32,7 @@ fi
 
 rm -f /dev/pex
 mknod /dev/pex c "${major}" 0
-chmod 666 /dev/pex
+chown root:"${PEX_DEVICE_GROUP}" /dev/pex
+chmod 660 /dev/pex
 
-echo "PEX device ready at /dev/pex (major=${major})."
+echo "PEX device ready at /dev/pex (major=${major}, group=${PEX_DEVICE_GROUP}, mode=0660)."

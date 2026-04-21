@@ -12,17 +12,26 @@ The design is intentionally operating-system-centric:
 
 - protected memory is kernel-owned and mapped through `/dev/pex`
 - `ioctl` transitions control context create, enter, exit, destroy, and info queries
-- mapped pages fault when the context is inactive or the wrong thread touches them
-- `PEX_POLICY_OWNER_THREAD_ONLY` enforces owner-thread entry
+- a first access to an unmapped page faults when the context is inactive or the
+  faulting thread is not the creator thread
+- `PEX_POLICY_OWNER_THREAD_ONLY` gates owner-thread entry
+- contexts are tied to their creating device-file lifetime and are cleaned up on
+  the final file-descriptor close
+- `/dev/pex` is accessible only to root and its configured authorized group, and
+  context allocations are quota-limited
 - `/proc/pex_stats` exposes global and per-context counters
 
 ## What This Project Actually Demonstrates
 
-PEX demonstrates kernel-assisted intra-process isolation, not hardware-backed trusted execution.
+PEX demonstrates kernel-assisted, fault-gated access control within a process,
+not hardware-backed trusted execution or complete in-process isolation.
 
-- The console showcase proves that touching the mapped region while inactive triggers a real fault.
-- The runtime only allows the owning thread to enter a protected context when owner-thread policy is enabled.
+- The console showcase proves that touching an invalidated mapped page while inactive triggers a real fault.
+- With `PEX_POLICY_OWNER_THREAD_ONLY`, the kernel rejects `pex_enter()` from a non-owner thread.
 - The kernel tracks entries, exits, faults, and protected time.
+- Closing a context's creating device file removes its remaining contexts; an
+  active mapping is deactivated and its PTEs are revoked before its references
+  are dropped.
 - The Tkinter viewer ties those transitions to a visible "locked" and "revealed" image flow.
 
 The viewer is a protected-reveal demo, not a secure display pipeline:
@@ -34,12 +43,23 @@ The viewer is a protected-reveal demo, not a secure display pipeline:
 
 This means the demo is useful for showing protected execution state and fault-gated memory, but it is not screenshot-resistant and it does not keep the full display path inside protected memory.
 
+It is also not a general thread-local memory-isolation mechanism. The VMA fault
+handler checks the creator thread only when a page faults. Once that fault
+installs a PTE while the context is active, Linux's process-wide page tables can
+let another thread in the same process use that already-present page until
+`pex_exit()` invalidates the mapping again. The viewer maps a 2 MiB region, not
+a single page. Finally, `PEX_POLICY_OWNER_THREAD_ONLY` only gates
+`pex_enter()` today: the fault and exit paths require the creator thread even
+when that flag is absent. Treat the project as a teaching prototype, not a
+security boundary for secrets shared with untrusted in-process threads.
+
 ## Repository Layout
 
 - `kernel/`: `pex.ko` kernel module
 - `libpex/`: C runtime library as `libpex.a` and `libpex.so`
 - `examples/`: protected workload and blocked-access showcase
-- `tests/`: policy validation and enter/exit benchmark
+- `tests/`: thread-policy validation, lifetime cleanup regression coverage, and
+  an enter/exit benchmark
 - `demo/`: Tkinter viewer and protected image asset
 - `scripts/`: local host setup and demo runners
 - `buildroot/`: Buildroot packaging, rootfs overlay, and QEMU boot scripts
@@ -85,7 +105,19 @@ That script:
 - unloads a previous `pex` module when possible
 - inserts the module
 - recreates `/dev/pex`
-- sets device permissions for non-root demos
+- sets `/dev/pex` to `root:<authorized-group>` mode `0660`; by default the
+  authorized group is the primary group of the user who invoked `sudo`
+
+Users outside that group cannot open `/dev/pex`. To select an existing shared
+group explicitly, set `PEX_DEVICE_GROUP` when loading the module:
+
+```bash
+sudo PEX_DEVICE_GROUP=pexusers bash ./scripts/dev_setup.sh
+```
+
+The kernel rejects allocations above these limits: 16 MiB per context, 8
+contexts or 16 MiB per process, and 64 contexts or 64 MiB globally. Rejected
+quota requests return `-EDQUOT`; an oversized single context returns `-E2BIG`.
 
 ## Host Demo Flow
 
@@ -106,6 +138,26 @@ Run the console validation tests:
 ```bash
 make run-tests
 ```
+
+The lifetime regression test can also be run directly on a Linux host with PEX
+loaded:
+
+```bash
+./tests/test_lifetime_cleanup
+```
+
+It checks cleanup after closing an fd without `pex_destroy()`, after `SIGKILL`
+of an active mapped child, and after a split VMA is unmapped and destroyed.
+
+Run the access-control and resource-limit regression as root:
+
+```bash
+sudo ./tests/test_access_limits
+```
+
+It confirms that an unprivileged child cannot open `/dev/pex`, then exercises
+per-process and global context/byte quotas and confirms capacity is reclaimed
+when the owning fds close.
 
 Run the full host-side end-to-end flow:
 

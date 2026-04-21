@@ -49,6 +49,16 @@ define PEX_BUILD_APPS
 		$(@D)/libpex/libpex.a
 
 	$(TARGET_CC) $(TARGET_CFLAGS) -I$(@D)/libpex/include \
+		-o $(@D)/tests/test_lifetime_cleanup \
+		$(@D)/tests/test_lifetime_cleanup.c \
+		$(@D)/libpex/libpex.a
+
+	$(TARGET_CC) $(TARGET_CFLAGS) -I$(@D)/libpex/include \
+		-o $(@D)/tests/test_access_limits \
+		$(@D)/tests/test_access_limits.c \
+		$(@D)/libpex/libpex.a
+
+	$(TARGET_CC) $(TARGET_CFLAGS) -I$(@D)/libpex/include \
 		-o $(@D)/tests/benchmark_entry_exit \
 		$(@D)/tests/benchmark_entry_exit.c \
 		$(@D)/libpex/libpex.a
@@ -80,6 +90,10 @@ define PEX_INSTALL_TARGET_CMDS
 	# Test binaries
 	$(INSTALL) -D -m 0755 $(@D)/tests/test_multithread_violation \
 		$(TARGET_DIR)/opt/pex/test_multithread_violation
+	$(INSTALL) -D -m 0755 $(@D)/tests/test_lifetime_cleanup \
+		$(TARGET_DIR)/opt/pex/test_lifetime_cleanup
+	$(INSTALL) -D -m 0755 $(@D)/tests/test_access_limits \
+		$(TARGET_DIR)/opt/pex/test_access_limits
 	$(INSTALL) -D -m 0755 $(@D)/tests/benchmark_entry_exit \
 		$(TARGET_DIR)/opt/pex/benchmark_entry_exit
 

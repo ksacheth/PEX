@@ -20,6 +20,8 @@ echo "[4/5] Running console showcase and tests..."
 ./examples/protected_workload || true
 ./examples/showcase_blocking --sleep "${sleep_s}" || true
 ./tests/test_multithread_violation
+./tests/test_lifetime_cleanup
+sudo ./tests/test_access_limits
 ./tests/benchmark_entry_exit
 python3 ./demo/pex_viewer.py --self-check
 

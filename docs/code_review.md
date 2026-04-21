@@ -1,5 +1,14 @@
 # PEX (SoftTEE) — Full Code Review
 
+> **Status update (2026-04-21):** This review records the pre-lifetime-patch
+> code. The current uncommitted working tree adds file-release cleanup,
+> `mmgrab()`/`mmdrop()` mapping ownership, split-VMA reference accounting, and
+> module-exit release outside the global spinlock. On 2026-04-21, the patch was
+> built and run on Ubuntu 24.04 with Linux 6.8.0-139-generic: fd-close,
+> active-map `SIGKILL`, and split-VMA scenarios each restored zero live and
+> active contexts; `rmmod pex` then succeeded. This is runtime evidence for the
+> patch, not a replacement for an aarch64 Buildroot/QEMU run.
+
 ## Overall Verdict
 
 The project compiles, the architecture makes sense, and the demo flow is well-structured. But there are several **correctness bugs** — including two that will silently corrupt behaviour at runtime — plus a handful of design and style issues. The most critical bugs live in the kernel module and the mmap offset logic.
@@ -65,17 +74,23 @@ In `pex_proc_read`, context fields are read while holding `g_ctx_table_lock` (sp
 
 ### 🟡 Design Concerns
 
-#### 1.6 No `pex_vma_open` handler
+#### 1.6 No `pex_vma_open` handler — addressed in the current working tree
 
 The `vm_operations_struct` defines `.close` but not `.open`. If the VMA is split (e.g. by `mprotect` on a sub-range), the kernel calls `.open` on the new VMA. Without `.open`, the `vm_private_data` pointer in the new VMA will be valid but the refcount won't be incremented, leading to a use-after-free when `.close` is called on both halves.
 
 **Fix:** Either add `.open` that calls `kref_get`, or set `VM_DONTEXPAND` on the VMA to prevent splitting.
 
+**Current source status:** `pex_vma_open()` now takes a kref and increments a
+VMA-reference count; `pex_vma_close()` drops one reference and releases the
+mapping's `mm_struct` only when the final VMA closes. The split-VMA scenario
+passed on Ubuntu 24.04 with Linux 6.8.0-139-generic; Buildroot/QEMU remains
+untested.
+
 #### 1.7 `pex_exit` wipes only if `ctx->mapped_mm` matches (line 265)
 
 If a different mm maps the context (shouldn't normally happen due to the tgid check in mmap, but after `fork` it could via COW), the zap won't happen. This is probably fine given `VM_DONTCOPY`, but worth documenting.
 
-#### 1.8 Module cleanup calls `kref_put` under spinlock (line 554)
+#### 1.8 Module cleanup calls `kref_put` under spinlock — addressed in the current working tree
 
 ```c
 spin_lock_irqsave(&g_ctx_table_lock, flags);
@@ -89,6 +104,13 @@ spin_unlock_irqrestore(&g_ctx_table_lock, flags);
 `pex_ctx_release` calls `vfree` and `kfree`, which may sleep. Calling these under a spinlock with IRQs disabled is **illegal** and will trigger a `BUG: sleeping function called from invalid context` on debug kernels.
 
 **Fix:** Collect contexts into a list outside the spinlock, then free them.
+
+**Current source status:** module exit now detaches contexts under the spinlock,
+then deactivates and releases them after unlocking. After the crash-cleanup
+regression passed on Ubuntu 24.04 with Linux 6.8.0-139-generic, `rmmod pex`
+succeeded. The live-context module-exit path cannot normally be reached because
+open fds and VMAs hold a module reference, so that source path is not directly
+runtime-exercised by the unload check.
 
 ---
 
@@ -250,7 +272,14 @@ Line 26 uses `modprobe -r pex`, but the module is loaded with `insmod` (not `mod
 
 #### 🟡 8.2 Manual `mknod` despite `udev`
 
-The script creates `/dev/pex` manually and `chmod 666`. Since the module uses `class_create` + `device_create`, udev should create the device node automatically. The manual `mknod` will work but may conflict with udev (creating a duplicate node). The `rm -f /dev/pex` before `mknod` handles this, but it would be cleaner to let udev manage it.
+The pre-patch script created `/dev/pex` manually and used `chmod 666`. Since the module uses `class_create` + `device_create`, udev should create the device node automatically. The manual `mknod` will work but may conflict with udev (creating a duplicate node). The `rm -f /dev/pex` before `mknod` handles this, but it would be cleaner to let udev manage it.
+
+**Current source status:** the setup scripts now create `root:<authorized-group>`
+mode `0660` device nodes. The host script defaults the group to the invoking
+sudo user's primary group (or accepts `PEX_DEVICE_GROUP`); Buildroot defaults to
+`root`. `tests/test_access_limits.c` verified on Ubuntu 24.04 / Linux
+6.8.0-139-generic that an unprivileged child cannot open the device and that
+per-process/global quotas return `-EDQUOT` and recover after close.
 
 ### [run_all.sh](file:///home/parallels/SoftTEE/scripts/run_all.sh)
 

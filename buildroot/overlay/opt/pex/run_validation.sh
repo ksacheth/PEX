@@ -56,11 +56,19 @@ run_test "showcase_blocking (fault gating, SIGSEGV, cross-thread)" \
 run_test "test_multithread_violation (owner-thread policy enforcement)" \
     /opt/pex/test_multithread_violation
 
-# ── Test 4: Benchmark ──
+# ── Test 4: Context Lifetime ──
+run_test "test_lifetime_cleanup (fd close, SIGKILL, VMA split)" \
+    /opt/pex/test_lifetime_cleanup
+
+# ── Test 5: Access Control And Limits ──
+run_test "test_access_limits (unauthorized user and quotas)" \
+    /opt/pex/test_access_limits
+
+# ── Test 6: Benchmark ──
 run_test "benchmark_entry_exit (10000 enter/exit cycles)" \
     /opt/pex/benchmark_entry_exit
 
-# ── Test 5: Python self-check (if python3 available) ──
+# ── Test 7: Python self-check (if python3 available) ──
 if command -v python3 >/dev/null 2>&1; then
     run_test "pex_viewer.py --self-check (Python bindings)" \
         python3 /opt/pex/pex_viewer.py --self-check

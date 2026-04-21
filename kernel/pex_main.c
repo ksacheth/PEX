@@ -6,12 +6,14 @@
 #include <linux/ioctl.h>
 #include <linux/kernel.h>
 #include <linux/kref.h>
+#include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pid.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
+#include <linux/sched/mm.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/timekeeping.h>
@@ -25,6 +27,7 @@
 
 struct pex_context {
     struct hlist_node hnode;
+    struct list_head file_node;
     struct kref refcount;
     struct mutex lock;
     int ctx_id;
@@ -43,16 +46,29 @@ struct pex_context {
     unsigned long mapped_start;
     unsigned long mapped_len;
     struct mm_struct *mapped_mm;
+    unsigned int vma_refs;
+};
+
+struct pex_file {
+    struct list_head contexts;
+};
+
+struct pex_mapping {
+    struct mm_struct *mm;
+    unsigned long start;
+    unsigned long len;
 };
 
 static DEFINE_HASHTABLE(g_ctx_table, PEX_CTX_TABLE_BITS);
 static DEFINE_SPINLOCK(g_ctx_table_lock);
+static DEFINE_MUTEX(g_ctx_create_lock);
 static atomic_t g_next_ctx_id = ATOMIC_INIT(1);
 static struct class *g_pex_class;
 static dev_t g_pex_devt;
 static struct cdev g_pex_cdev;
 static struct proc_dir_entry *g_proc_root;
 static atomic64_t g_live_contexts = ATOMIC64_INIT(0);
+static atomic64_t g_live_bytes = ATOMIC64_INIT(0);
 static atomic64_t g_active_contexts = ATOMIC64_INIT(0);
 static atomic64_t g_total_faults = ATOMIC64_INIT(0);
 
@@ -61,9 +77,129 @@ static void pex_ctx_release(struct kref *ref)
     struct pex_context *ctx = container_of(ref, struct pex_context, refcount);
 
     if (ctx->mapped_mm)
-        mmput(ctx->mapped_mm);
+        mmdrop(ctx->mapped_mm);
     vfree(ctx->kbuf);
     kfree(ctx);
+}
+
+static void pex_capture_mapping_locked(struct pex_context *ctx,
+                                       struct pex_mapping *mapping)
+{
+    if (ctx->mapped_mm != current->mm || !ctx->mapped_start || !ctx->mapped_len)
+        return;
+
+    mapping->mm = ctx->mapped_mm;
+    mapping->start = ctx->mapped_start;
+    mapping->len = ctx->mapped_len;
+    mmget(mapping->mm);
+}
+
+static void pex_zap_mapping(struct pex_context *ctx, struct pex_mapping *mapping)
+{
+    struct vm_area_struct *vma;
+    unsigned long end;
+
+    if (!mapping->mm)
+        return;
+
+    VMA_ITERATOR(vmi, mapping->mm, mapping->start);
+
+    end = mapping->start + mapping->len;
+    if (end < mapping->start)
+        goto out;
+
+    mmap_write_lock(mapping->mm);
+    for_each_vma_range(vmi, vma, end) {
+        unsigned long start;
+        unsigned long vma_end;
+
+        if (vma->vm_private_data != ctx)
+            continue;
+
+        start = max(mapping->start, vma->vm_start);
+        vma_end = min(end, vma->vm_end);
+        zap_vma_ptes(vma, start, vma_end - start);
+    }
+    mmap_write_unlock(mapping->mm);
+
+out:
+    mmput(mapping->mm);
+    mapping->mm = NULL;
+}
+
+static void pex_deactivate_locked(struct pex_context *ctx,
+                                  struct pex_mapping *mapping,
+                                  bool record_exit)
+{
+    u64 now;
+
+    if (!ctx->active)
+        return;
+
+    now = ktime_get_ns();
+    if (now > ctx->enter_ns)
+        ctx->total_ns += (now - ctx->enter_ns);
+    ctx->active = false;
+    if (record_exit)
+        ctx->total_exits++;
+    atomic64_dec(&g_active_contexts);
+    pex_capture_mapping_locked(ctx, mapping);
+}
+
+static void pex_deactivate(struct pex_context *ctx)
+{
+    struct pex_mapping mapping = {};
+
+    mutex_lock(&ctx->lock);
+    pex_deactivate_locked(ctx, &mapping, false);
+    mutex_unlock(&ctx->lock);
+    pex_zap_mapping(ctx, &mapping);
+}
+
+static bool pex_ctx_unlink_locked(struct pex_context *ctx)
+{
+    if (hlist_unhashed(&ctx->hnode))
+        return false;
+
+    hash_del(&ctx->hnode);
+    list_del_init(&ctx->file_node);
+    atomic64_dec(&g_live_contexts);
+    atomic64_sub(ctx->size, &g_live_bytes);
+    return true;
+}
+
+static int pex_check_create_limits_locked(pid_t owner_tgid, u64 size)
+{
+    struct pex_context *ctx;
+    u64 owner_bytes = 0;
+    u64 live_bytes;
+    unsigned int owner_contexts = 0;
+    int bkt;
+
+    if (size > PEX_MAX_CONTEXT_BYTES)
+        return -E2BIG;
+
+    live_bytes = atomic64_read(&g_live_bytes);
+    if (atomic64_read(&g_live_contexts) >= PEX_MAX_CONTEXTS_GLOBAL ||
+        live_bytes > PEX_MAX_BYTES_GLOBAL ||
+        size > PEX_MAX_BYTES_GLOBAL - live_bytes)
+        return -EDQUOT;
+
+    hash_for_each(g_ctx_table, bkt, ctx, hnode) {
+        if (ctx->owner_tgid != owner_tgid)
+            continue;
+
+        owner_contexts++;
+        if (ctx->size > PEX_MAX_BYTES_PER_TGID - owner_bytes)
+            return -EDQUOT;
+        owner_bytes += ctx->size;
+    }
+
+    if (owner_contexts >= PEX_MAX_CONTEXTS_PER_TGID ||
+        size > PEX_MAX_BYTES_PER_TGID - owner_bytes)
+        return -EDQUOT;
+
+    return 0;
 }
 
 static struct pex_context *pex_ctx_get_locked(int ctx_id)
@@ -88,33 +224,50 @@ static void pex_log_fault(struct pex_context *ctx, u32 fault_type, unsigned long
         ctx ? ctx->ctx_id : -1, task_tgid_nr(current), task_pid_nr(current), fault_type, addr);
 }
 
-static int pex_ctx_create(struct pex_create_req __user *argp)
+static int pex_ctx_create(struct file *file, struct pex_create_req __user *argp)
 {
     struct pex_create_req req;
     struct pex_context *ctx;
+    struct pex_file *pex_file = file->private_data;
     unsigned long flags;
+    pid_t owner_tgid;
     int id;
+    int ret;
 
+    if (!pex_file)
+        return -ENODEV;
     if (copy_from_user(&req, argp, sizeof(req)))
         return -EFAULT;
-    if (!req.size || req.size > (1ULL << 30))
+    if (!req.size)
         return -EINVAL;
 
+    owner_tgid = task_tgid_nr(current);
+    mutex_lock(&g_ctx_create_lock);
+    spin_lock_irqsave(&g_ctx_table_lock, flags);
+    ret = pex_check_create_limits_locked(owner_tgid, req.size);
+    spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+    if (ret)
+        goto out_unlock_create;
+
     ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
-    if (!ctx)
-        return -ENOMEM;
+    if (!ctx) {
+        ret = -ENOMEM;
+        goto out_unlock_create;
+    }
 
     ctx->kbuf = vmalloc_user(req.size);
     if (!ctx->kbuf) {
         kfree(ctx);
-        return -ENOMEM;
+        ret = -ENOMEM;
+        goto out_unlock_create;
     }
 
     kref_init(&ctx->refcount);
+    INIT_LIST_HEAD(&ctx->file_node);
     mutex_init(&ctx->lock);
     id = atomic_inc_return(&g_next_ctx_id);
     ctx->ctx_id = id;
-    ctx->owner_tgid = task_tgid_nr(current);
+    ctx->owner_tgid = owner_tgid;
     ctx->owner_tid = task_pid_nr(current);
     ctx->policy_flags = req.policy_flags;
     ctx->size = req.size;
@@ -122,8 +275,11 @@ static int pex_ctx_create(struct pex_create_req __user *argp)
 
     spin_lock_irqsave(&g_ctx_table_lock, flags);
     hash_add(g_ctx_table, &ctx->hnode, (unsigned long)ctx->ctx_id);
-    spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+    list_add_tail(&ctx->file_node, &pex_file->contexts);
     atomic64_inc(&g_live_contexts);
+    atomic64_add(ctx->size, &g_live_bytes);
+    spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+    mutex_unlock(&g_ctx_create_lock);
 
     req.out_ctx_id = ctx->ctx_id;
     req.out_reserved = 0;
@@ -131,54 +287,54 @@ static int pex_ctx_create(struct pex_create_req __user *argp)
     if (copy_to_user(argp, &req, sizeof(req)))
         return -EFAULT;
     return 0;
+
+out_unlock_create:
+    mutex_unlock(&g_ctx_create_lock);
+    return ret;
 }
 
 static int pex_ctx_destroy(struct pex_ctx_req __user *argp)
 {
     struct pex_ctx_req req;
     struct pex_context *ctx;
-    struct hlist_node *tmp;
     unsigned long flags;
+    struct pex_mapping mapping = {};
+    bool removed = false;
+    int ret = 0;
 
     if (copy_from_user(&req, argp, sizeof(req)))
         return -EFAULT;
 
     spin_lock_irqsave(&g_ctx_table_lock, flags);
-    hash_for_each_possible_safe(g_ctx_table, ctx, tmp, hnode, (unsigned long)req.ctx_id) {
-        u64 now;
-
-        if (ctx->ctx_id != req.ctx_id)
-            continue;
-
-        hash_del(&ctx->hnode);
-        spin_unlock_irqrestore(&g_ctx_table_lock, flags);
-
-        mutex_lock(&ctx->lock);
-        if (ctx->owner_tgid != task_tgid_nr(current)) {
-            pex_log_fault(ctx, PEX_FAULT_BAD_OWNER, 0);
-            mutex_unlock(&ctx->lock);
-            spin_lock_irqsave(&g_ctx_table_lock, flags);
-            hash_add(g_ctx_table, &ctx->hnode, (unsigned long)ctx->ctx_id);
-            spin_unlock_irqrestore(&g_ctx_table_lock, flags);
-            return -EPERM;
-        }
-
-        if (ctx->active) {
-            now = ktime_get_ns();
-            if (now > ctx->enter_ns)
-                ctx->total_ns += (now - ctx->enter_ns);
-            ctx->active = false;
-            atomic64_dec(&g_active_contexts);
-        }
-        mutex_unlock(&ctx->lock);
-
-        atomic64_dec(&g_live_contexts);
-        kref_put(&ctx->refcount, pex_ctx_release);
-        return 0;
-    }
+    ctx = pex_ctx_get_locked(req.ctx_id);
     spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+    if (!ctx)
+        return -ENOENT;
 
-    return -ENOENT;
+    mutex_lock(&ctx->lock);
+    if (ctx->owner_tgid != task_tgid_nr(current)) {
+        pex_log_fault(ctx, PEX_FAULT_BAD_OWNER, 0);
+        ret = -EPERM;
+        goto out;
+    }
+
+    spin_lock_irqsave(&g_ctx_table_lock, flags);
+    removed = pex_ctx_unlink_locked(ctx);
+    spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+    if (!removed) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    pex_deactivate_locked(ctx, &mapping, false);
+
+out:
+    mutex_unlock(&ctx->lock);
+    pex_zap_mapping(ctx, &mapping);
+    if (removed)
+        kref_put(&ctx->refcount, pex_ctx_release);
+    kref_put(&ctx->refcount, pex_ctx_release);
+    return ret;
 }
 
 static int pex_ctx_enter(struct pex_ctx_req __user *argp)
@@ -230,12 +386,9 @@ static int pex_ctx_exit(struct pex_ctx_req __user *argp)
 {
     struct pex_ctx_req req;
     struct pex_context *ctx;
-    struct mm_struct *mapped_mm = NULL;
+    struct pex_mapping mapping = {};
     unsigned long flags;
-    unsigned long mapped_start = 0;
-    unsigned long mapped_len = 0;
     int ret = 0;
-    u64 now;
 
     if (copy_from_user(&req, argp, sizeof(req)))
         return -EFAULT;
@@ -258,32 +411,11 @@ static int pex_ctx_exit(struct pex_ctx_req __user *argp)
         goto out;
     }
 
-    now = ktime_get_ns();
-    ctx->active = false;
-    ctx->total_exits++;
-    if (now > ctx->enter_ns)
-        ctx->total_ns += (now - ctx->enter_ns);
-    atomic64_dec(&g_active_contexts);
-
-    if (ctx->mapped_mm && ctx->mapped_start && ctx->mapped_len) {
-        mapped_mm = ctx->mapped_mm;
-        mapped_start = ctx->mapped_start;
-        mapped_len = ctx->mapped_len;
-        mmget(mapped_mm);
-    }
+    pex_deactivate_locked(ctx, &mapping, true);
 
 out:
     mutex_unlock(&ctx->lock);
-    if (mapped_mm) {
-        struct vm_area_struct *vma;
-
-        mmap_write_lock(mapped_mm);
-        vma = find_vma(mapped_mm, mapped_start);
-        if (vma && vma->vm_start == mapped_start && vma->vm_private_data == ctx)
-            zap_vma_ptes(vma, mapped_start, mapped_len);
-        mmap_write_unlock(mapped_mm);
-        mmput(mapped_mm);
-    }
+    pex_zap_mapping(ctx, &mapping);
     kref_put(&ctx->refcount, pex_ctx_release);
     return ret;
 }
@@ -325,7 +457,7 @@ static long pex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     switch (cmd) {
     case PEX_IOCTL_CREATE_CTX:
-        return pex_ctx_create((struct pex_create_req __user *)arg);
+        return pex_ctx_create(file, (struct pex_create_req __user *)arg);
     case PEX_IOCTL_DESTROY_CTX:
         return pex_ctx_destroy((struct pex_ctx_req __user *)arg);
     case PEX_IOCTL_ENTER_CTX:
@@ -352,8 +484,9 @@ static ssize_t pex_proc_read(struct file *file, char __user *ubuf, size_t count,
         return -ENOMEM;
 
     len = scnprintf(buf, PAGE_SIZE,
-        "live_contexts=%lld\nactive_contexts=%lld\ntotal_faults=%lld\n",
+        "live_contexts=%lld\nlive_bytes=%lld\nactive_contexts=%lld\ntotal_faults=%lld\n",
         atomic64_read(&g_live_contexts),
+        atomic64_read(&g_live_bytes),
         atomic64_read(&g_active_contexts),
         atomic64_read(&g_total_faults));
 
@@ -416,25 +549,40 @@ static vm_fault_t pex_vma_fault(struct vm_fault *vmf)
 static void pex_vma_close(struct vm_area_struct *vma)
 {
     struct pex_context *ctx = vma->vm_private_data;
+    struct mm_struct *mapped_mm = NULL;
 
     if (!ctx)
         return;
 
     mutex_lock(&ctx->lock);
-    if (ctx->mapped_mm == current->mm &&
-        ctx->mapped_start == vma->vm_start &&
-        ctx->mapped_len == (vma->vm_end - vma->vm_start)) {
-        mmput(ctx->mapped_mm);
+    if (ctx->vma_refs && --ctx->vma_refs == 0) {
+        mapped_mm = ctx->mapped_mm;
         ctx->mapped_mm = NULL;
         ctx->mapped_start = 0;
         ctx->mapped_len = 0;
     }
     mutex_unlock(&ctx->lock);
+    if (mapped_mm)
+        mmdrop(mapped_mm);
     kref_put(&ctx->refcount, pex_ctx_release);
+}
+
+static void pex_vma_open(struct vm_area_struct *vma)
+{
+    struct pex_context *ctx = vma->vm_private_data;
+
+    if (!ctx)
+        return;
+
+    kref_get(&ctx->refcount);
+    mutex_lock(&ctx->lock);
+    ctx->vma_refs++;
+    mutex_unlock(&ctx->lock);
 }
 
 static const struct vm_operations_struct pex_vm_ops = {
     .fault = pex_vma_fault,
+    .open = pex_vma_open,
     .close = pex_vma_close,
 };
 
@@ -469,9 +617,10 @@ static int pex_mmap(struct file *file, struct vm_area_struct *vma)
     }
 
     ctx->mapped_mm = current->mm;
-    mmget(ctx->mapped_mm);
+    mmgrab(ctx->mapped_mm);
     ctx->mapped_start = vma->vm_start;
     ctx->mapped_len = len;
+    ctx->vma_refs = 1;
 
     #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
     vm_flags_set(vma, VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_PFNMAP);
@@ -484,8 +633,54 @@ static int pex_mmap(struct file *file, struct vm_area_struct *vma)
     return 0;
 }
 
+static int pex_open(struct inode *inode, struct file *file)
+{
+    struct pex_file *pex_file;
+
+    pex_file = kzalloc(sizeof(*pex_file), GFP_KERNEL);
+    if (!pex_file)
+        return -ENOMEM;
+
+    INIT_LIST_HEAD(&pex_file->contexts);
+    file->private_data = pex_file;
+    return 0;
+}
+
+static int pex_release(struct inode *inode, struct file *file)
+{
+    struct pex_file *pex_file = file->private_data;
+    struct pex_context *ctx;
+    struct pex_context *tmp;
+    LIST_HEAD(contexts_to_release);
+    unsigned long flags;
+
+    if (!pex_file)
+        return 0;
+
+    spin_lock_irqsave(&g_ctx_table_lock, flags);
+    list_for_each_entry(ctx, &pex_file->contexts, file_node) {
+        hash_del(&ctx->hnode);
+        atomic64_dec(&g_live_contexts);
+        atomic64_sub(ctx->size, &g_live_bytes);
+    }
+    list_splice_init(&pex_file->contexts, &contexts_to_release);
+    spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+
+    list_for_each_entry_safe(ctx, tmp, &contexts_to_release, file_node) {
+        list_del_init(&ctx->file_node);
+        pex_deactivate(ctx);
+        kref_put(&ctx->refcount, pex_ctx_release);
+    }
+
+    kfree(pex_file);
+    file->private_data = NULL;
+    return 0;
+}
+
 static const struct file_operations pex_fops = {
     .owner = THIS_MODULE,
+    .open = pex_open,
+    .release = pex_release,
     .unlocked_ioctl = pex_ioctl,
     .mmap = pex_mmap,
 #ifdef CONFIG_COMPAT
@@ -549,6 +744,7 @@ static void __exit pex_exit(void)
 {
     struct pex_context *ctx;
     struct hlist_node *tmp;
+    LIST_HEAD(contexts_to_release);
     unsigned long flags;
     int bkt;
 
@@ -562,9 +758,18 @@ static void __exit pex_exit(void)
     spin_lock_irqsave(&g_ctx_table_lock, flags);
     hash_for_each_safe(g_ctx_table, bkt, tmp, ctx, hnode) {
         hash_del(&ctx->hnode);
-        kref_put(&ctx->refcount, pex_ctx_release);
+        list_move_tail(&ctx->file_node, &contexts_to_release);
+        atomic64_dec(&g_live_contexts);
+        atomic64_sub(ctx->size, &g_live_bytes);
     }
     spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+
+    while (!list_empty(&contexts_to_release)) {
+        ctx = list_first_entry(&contexts_to_release, struct pex_context, file_node);
+        list_del_init(&ctx->file_node);
+        pex_deactivate(ctx);
+        kref_put(&ctx->refcount, pex_ctx_release);
+    }
 
     pr_info("pex: module unloaded\n");
 }

@@ -19,6 +19,8 @@ examples: lib
 
 tests: lib
 	$(CC) $(CFLAGS) -pthread -o tests/test_multithread_violation tests/test_multithread_violation.c libpex/libpex.a $(LDFLAGS)
+	$(CC) $(CFLAGS) -o tests/test_lifetime_cleanup tests/test_lifetime_cleanup.c libpex/libpex.a $(LDFLAGS)
+	$(CC) $(CFLAGS) -o tests/test_access_limits tests/test_access_limits.c libpex/libpex.a $(LDFLAGS)
 	$(CC) $(CFLAGS) -o tests/benchmark_entry_exit tests/benchmark_entry_exit.c libpex/libpex.a $(LDFLAGS)
 
 demo: lib
@@ -40,6 +42,8 @@ run-showcase: examples kernel
 run-tests: tests kernel
 	sudo bash ./scripts/dev_setup.sh
 	./tests/test_multithread_violation
+	./tests/test_lifetime_cleanup
+	sudo ./tests/test_access_limits
 	./tests/benchmark_entry_exit
 
 run-e2e: all kernel
@@ -51,5 +55,7 @@ clean:
 	rm -f examples/protected_workload
 	rm -f examples/showcase_blocking
 	rm -f tests/test_multithread_violation
+	rm -f tests/test_lifetime_cleanup
+	rm -f tests/test_access_limits
 	rm -f tests/benchmark_entry_exit
 	find demo -name '__pycache__' -type d -prune -exec rm -rf {} +

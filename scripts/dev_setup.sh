@@ -4,6 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 MODULE_PATH="${ROOT_DIR}/kernel/pex.ko"
+if [[ -n "${PEX_DEVICE_GROUP:-}" ]]; then
+  device_group="${PEX_DEVICE_GROUP}"
+elif [[ -n "${SUDO_USER:-}" ]]; then
+  device_group="$(id -gn "${SUDO_USER}")"
+else
+  device_group="root"
+fi
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root (sudo)." >&2
@@ -45,6 +52,7 @@ if [[ -e /dev/pex ]]; then
   rm -f /dev/pex
 fi
 mknod /dev/pex c "${major}" 0
-chmod 666 /dev/pex
+chown root:"${device_group}" /dev/pex
+chmod 660 /dev/pex
 
-echo "PEX device ready at /dev/pex (major=${major})."
+echo "PEX device ready at /dev/pex (major=${major}, group=${device_group}, mode=0660)."
