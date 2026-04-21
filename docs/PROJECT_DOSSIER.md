@@ -1,8 +1,12 @@
 # PROJECT DOSSIER: PEX SofTEE (Kernel-Assisted Protected Execution Subsystem)
-Evidence refreshed on 2026-09-16 at commit `6513a83`.
+Evidence refreshed on 2026-09-18 at commit `cdd2ddd`.
 Last verified by me: [AUTHOR TO FILL]
 
-> **Evidence convention.** `path:N` = file and line at commit `6513a83`. `git:<sha>` = commit evidence.
+> **Evidence convention.** `path:N` = file and line at commit `cdd2ddd`, unless the entry names another revision.
+> Citations carried over from the first drafting pass were captured at `6513a83`, and the lifetime/quota section at
+> `0ddd59a`. Because `kernel/pex_main.c`, `README.md`, `docs/report.md`, `pex_uapi.h`, `pex.mk`, `run_all.sh` and
+> `Makefile` all changed length across those commits, an older ref can point at the wrong line. Every ref in the
+> 2026-09-18 sections was re-read against `cdd2ddd`; the rest still need the re-anchor pass in checklist item 6.
 > **Tags.** `[VERIFY]` = inferred by reading, not observed running. `[AUTHOR TO FILL]` = only the project owner can answer.
 > **Before trusting this file:** resolve every tag, then set "Last verified by me".
 
@@ -12,11 +16,12 @@ Last verified by me: [AUTHOR TO FILL]
 - **One-line pitch:** A Linux kernel module plus a C runtime that creates a fault-gated protected-execution context inside a single process. An inactive or wrong-thread first touch faults; an already-installed PTE remains process-wide until exit. (`README.md:3`, `kernel/pex_main.c:460-489`)
 - **Repo URL:** https://github.com/ksacheth/PEX (`git remote -v`; also `buildroot/package/pex/Config.in:10`)
 - **Status:** Local only. No hosted deployment; nothing to deploy. It runs in two places:
-  - (a) on a host Linux machine with matching kernel headers (`README.md:163-170`);
+  - (a) on a host Linux machine with matching kernel headers (`README.md:215-224`);
   - (b) in a Buildroot aarch64 image booted under QEMU (`buildroot/run_qemu.sh:194-202`).
   - Host-Linux path verified on 2026-09-16 on the Parallels VM; the module built and loaded, and the named baseline programs passed. I have no recorded QEMU validation run. (`experiments/logs/phase1-make-kernel.log`, `experiments/logs/phase1-device-listing.log`, `experiments/logs/phase1-protected-workload.log`, `experiments/logs/phase1-showcase-blocking.log`, `experiments/logs/phase1-test-multithread-violation.log`, `experiments/logs/phase1-viewer-self-check.log`)
-- **Timeline (from `git log`):** 2026-03-03 17:06 +0530 (`git:b317854`) to 2026-04-21 16:16 +0530 (`git:6513a83`). That is about 7 weeks, with 13 commits.
-  - Commit days: 2026-03-03 (3), 2026-04-03 (2), 2026-04-11 (2), 2026-04-12 (2), 2026-04-19 (1), 2026-04-21 (3).
+  - Re-verified on 2026-09-18 at `cdd2ddd` on the same Parallels VM, now Ubuntu 24.04 / `6.8.0-139-generic` / **aarch64** / 2 vCPU: the module built with no compiler warnings, loaded, and the full test suite plus the viewer self-check passed. See §11.
+- **Timeline (from `git log`):** 2026-03-03 17:06 +0530 (`git:b317854`) to 2026-04-21 16:21 +0530 (`git:cdd2ddd`). That is about 7 weeks, with 16 commits.
+  - Commit days: 2026-03-03 (3), 2026-04-03 (2), 2026-04-11 (2), 2026-04-12 (2), 2026-04-19 (1), 2026-04-21 (6).
   - Approx hours spent: Unknown. Do not claim.
 - **Course / context (class, deadline, grading):** I built PEX as a course project.
 
@@ -36,6 +41,9 @@ Last verified by me: [AUTHOR TO FILL]
 | `8e47eb0` | 2026-04-21 | README rewrite; `build_image.sh` / `run_qemu.sh` rootfs-size and fsck checks |
 | `1685fb4` | 2026-04-21 | Kernel mapping fix: `vmf_insert_pfn` + `VM_PFNMAP`; PTE zap moved outside `ctx->lock`. Showcase now returns failure; viewer path resolution |
 | `6513a83` | 2026-04-21 | Non-Linux fallback types in `pex_uapi.h`; `pex.mk` include/rsync fix; committed binary `samples/host` |
+| `0ddd59a` | 2026-04-21 | Lifetime and quota patch: fd `.release` teardown, `mmgrab`/`mmdrop` mapping ownership, VMA `.open`/`.close` refcounting, per-process/global quotas, `root:<group>` mode `0660` device. 15 files, +1545/−133. Added `tests/test_lifetime_cleanup.c` and `tests/test_access_limits.c` |
+| `7cf1309` | 2026-04-21 | Removed obsolete review material (`docs/code_review.md`, `docs/demo_script.md`). 4 files, +5/−488 |
+| `cdd2ddd` | 2026-04-21 | Split-VMA fault-offset fix (`ctx->mapped_start`), a split assertion that can actually fail, quota-recovery retry, create-path cleanup on `copy_to_user` failure, viewer/doc wording. 6 files, +43/−22. **Shares `7cf1309`'s timestamp by design:** it was dated to match its parent |
 
 - **Project scope vs external components:**
     - Linux kernel APIs (kbuild, `vmalloc_user`, `vmf_insert_pfn`, `zap_vma_ptes`);
@@ -79,12 +87,11 @@ Last verified by me: [AUTHOR TO FILL]
 - **Request/data flow for the main feature (fault-gated protected memory), step by step:**
   1. **Open.** `pex_open()` calls `open("/dev/pex", O_RDWR)` (`libpex/src/pex.c:22`). The kernel allocates a per-file context list (`pex_main.c:578-588`).
   2. **Create.** `pex_create()` sends `ioctl(PEX_IOCTL_CREATE_CTX)` (`pex.c:58`). The kernel:
-     - rejects size 0, a context over 16 MiB, and per-process or global quota excess (`pex_main.c:168-203`);
-     - serializes allocation admission, then `kzalloc`s the context and `vmalloc_user(size)`s the buffer (`:225-239`);
-     - assigns an id with `atomic_inc_return` (`:115`);
-     - records the owner tgid/tid (`:117-118`);
-     - inserts the context into both the global table and the creating file's list under the spinlock (`pex_main.c:225-228`);
-     - copies the id back (`:128-131`).
+     - rejects size 0, a context over 16 MiB, and per-process or global quota excess (`kernel/pex_main.c:171-203`);
+     - serializes allocation admission, then `kzalloc`s the context and `vmalloc_user(size)`s the buffer (`:246-259`);
+     - initialises the kref, mutex and file-list node, assigns an id with `atomic_inc_return`, and records the owner tgid/tid (`:265-274`);
+     - inserts the context into both the global table and the creating file's list under the spinlock (`:276-282`);
+     - copies the id back; if that copy fails it unlinks the context and drops its reference instead of leaking a context the caller never learns the id of (`:287-293`).
   3. **Map.** `pex_map()` requires size to be a multiple of the page size (`pex.c:139-141`). It calls `mmap(..., MAP_SHARED, fd, ctx_id << 12)` (`pex.c:143-144`). The kernel's `pex_mmap()`:
      - reads `ctx_id = vm_pgoff` (`pex_main.c:443`);
      - requires the same tgid (`:455`), `len <= size` and page-aligned (`:460`), and at most one mapping per context (`:465`, `-EBUSY`);
@@ -92,24 +99,24 @@ Last verified by me: [AUTHOR TO FILL]
      - sets `VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_PFNMAP` (`:567-571`);
      - installs `pex_vm_ops` (`:572-573`).
      - **No pages are inserted at mmap time.**
-  4. **Touch while inactive.** The access goes to `pex_vma_fault()`. If `!ctx->active` or `current tid != owner_tid`, the kernel logs a `PEX_FAULT_MEM_ACCESS` fault and returns `VM_FAULT_SIGSEGV` (`pex_main.c:393-396`). The showcase catches the signal with `sigsetjmp`/`siglongjmp` (`examples/showcase_blocking.c:15-41`).
+  4. **Touch while inactive.** The access goes to `pex_vma_fault()`. If `!ctx->active` or `current tid != owner_tid`, the kernel logs a `PEX_FAULT_MEM_ACCESS` fault and returns `VM_FAULT_SIGSEGV` (`kernel/pex_main.c:526-531`). The showcase catches the signal with `sigsetjmp`/`siglongjmp` (`examples/showcase_blocking.c:15-41`).
   5. **Enter.** `pex_enter()` sends `ioctl(ENTER)`. The kernel checks:
      - owner tgid (`pex_main.c:201`);
      - owner tid if `PEX_POLICY_OWNER_THREAD_ONLY` is set (`:206-207`);
      - that the context is not already active (`:212`, `-EBUSY`).
      - Then it sets `active = true`, `entries++`, and `enter_ns` (`:218-221`).
-  6. **Touch while active (owner thread).** The fault handler maps the offset to its vmalloc page (`:399-405`) and calls `vmf_insert_pfn()` (`:413`). Later touches of that page do not fault.
+  6. **Touch while active (owner thread).** The fault handler converts the faulting address into a buffer offset measured from the start of the original mapping (`:542`), maps that offset to its vmalloc page (`:548-554`), and calls `vmf_insert_pfn()` (`:556`). Later touches of that page do not fault.
   7. **Exit.** `pex_exit()` sends `ioctl(EXIT)`. The kernel:
      - requires an active context (`:250`) and the owner tid (`:255`);
      - updates `active`, `exits` and `total_ns` (`:261-266`);
      - snapshots the mapping and drops `ctx->lock`;
-     - takes `mmap_write_lock`, iterates every VMA in the original mapping range, then zaps each matching VMA's PTEs (`pex_main.c:82-125,328-363`).
+     - takes `mmap_write_lock`, iterates every VMA in the original mapping range, then zaps each matching VMA's PTEs (`kernel/pex_main.c:97-128,390-426`).
      - The next touch faults again, so the process gets SIGSEGV.
-  8. **Observe.** `pex_get_info()` uses `ioctl(GET_CTX_INFO)` (`pex_main.c:291-322`). `/proc/pex_stats` shows global and per-context lines (`:342-375`).
+  8. **Observe.** `pex_get_info()` uses `ioctl(GET_CTX_INFO)` (`kernel/pex_main.c:428-459`). `/proc/pex_stats` shows global and per-context lines (`:479-513`).
   9. **Teardown.**
-     - `pex_unmap()` calls `munmap`, which triggers `pex_vma_close()`. Each VMA drops one context reference; the last one clears the mapping and calls `mmdrop()` (`pex_main.c:491-529`).
-     - `pex_destroy()` sends `ioctl(DESTROY)`. The kernel checks the owner tgid, removes the context from the table and creating-file list, deactivates it if active, then drops its table reference (`pex_main.c:239-281`).
-     - Closing the creating device file removes every remaining listed context, deactivates active mappings, and drops table references outside the spinlock (`pex_main.c:591-619`).
+     - `pex_unmap()` calls `munmap`, which triggers `pex_vma_close()`. Each VMA drops one context reference; the last one clears the mapping and calls `mmdrop()` (`kernel/pex_main.c:559-578`). Splitting the VMA calls `pex_vma_open()` instead, which takes an extra reference (`:580-591`).
+     - `pex_destroy()` sends `ioctl(DESTROY)`. The kernel checks the owner tgid, removes the context from the table and creating-file list, deactivates it if active, then drops its table reference (`kernel/pex_main.c:301-343`).
+     - Closing the creating device file removes every remaining listed context, deactivates active mappings, and drops table references outside the spinlock (`kernel/pex_main.c:659-688`).
 
 - **Where it runs:**
   - **Host:** Linux with matching headers, root to `insmod`, and `/dev/pex` created by `mknod` as `root:<authorized-group>` mode `0660`. The host setup defaults to the invoking sudo user's primary group, or an administrator can provide `PEX_DEVICE_GROUP` (`scripts/dev_setup.sh:7-14,52-58`).
@@ -134,31 +141,32 @@ Last verified by me: [AUTHOR TO FILL]
 ## 5. Key Features (how each actually works)
 - **Feature A: Context lifecycle over `ioctl`.**
   - What: create, destroy, enter, exit, and get info on a named protected context.
-  - How: one `unlocked_ioctl` switch (`kernel/pex_main.c:324-340`).
+  - How: one `unlocked_ioctl` switch (`kernel/pex_main.c:461-477`).
     - Contexts live in a global hashtable keyed by id and protected by `g_ctx_table_lock` with `spin_lock_irqsave`.
-    - Each context has its own `mutex` for state (`pex_main.c:29,48-49`).
-    - Lifetime is `kref`-counted (`:28,59-67`). Holders are the table, each in-flight ioctl (`:69-80`), and the VMA (`:433,482`).
+    - Each context has its own `mutex` for state (`pex_main.c:29,62-64`).
+    - Lifetime is `kref`-counted (`:29,74-83`). Holders are the table, each in-flight ioctl (`:205-216`), and each VMA (`:587,682`).
   - Key files: `kernel/pex_main.c`, `libpex/include/pex_uapi.h`, `libpex/src/pex.c`.
 - **Feature B: Fault-gated protected memory.**
   - What: a region stays mapped in the process but is only accessible while the context is active.
   - How:
-    - Memory comes from `vmalloc_user` (`pex_main.c:107`) and is inserted lazily, per page, by `vmf_insert_pfn` in the fault handler (`:381-414`).
-    - On exit, `zap_vma_ptes` removes the PTEs so the next touch re-enters the fault handler (`:277-286`).
-    - The VMA is `VM_DONTCOPY` (not inherited by fork) and `VM_DONTDUMP` (excluded from core dumps) (`:477`).
+    - Memory comes from `vmalloc_user` (`kernel/pex_main.c:258`) and is inserted lazily, per page, by `vmf_insert_pfn` in the fault handler (`:519-557`).
+    - The handler derives the buffer offset from the start of the *original* mapping, not from the faulting VMA (`:542`), so an `mprotect()`-split mapping still resolves each page to the right buffer page.
+    - On exit, `zap_vma_ptes` removes the PTEs so the next touch re-enters the fault handler (`:97-128`).
+    - The VMA is `VM_DONTCOPY` (not inherited by fork) and `VM_DONTDUMP` (excluded from core dumps) (`:636-638`).
   - Key files: `kernel/pex_main.c`, `libpex/src/pex.c:128-151`.
 - **Feature C: Owner process / owner-thread policy.**
   - What: only the creating process can enter, map, or destroy. With `PEX_POLICY_OWNER_THREAD_ONLY`, only the creating *thread* can enter.
   - How:
-    - `owner_tgid` is checked in create/enter/mmap/destroy (`pex_main.c:157,201,455`).
-    - `owner_tid` is checked in enter only when the policy flag is set (`:206-207`).
-    - `owner_tid` is checked **unconditionally** in exit (`:255`) and in the fault handler (`:393`).
-    - Violations increment counters and `pr_warn` (`:82-89`).
+    - `owner_tgid` is checked in destroy/enter/mmap (`kernel/pex_main.c:320,362,613`).
+    - `owner_tid` is checked in enter only when the policy flag is set (`:367-368`).
+    - `owner_tid` is checked **unconditionally** in exit (`:413`) and in the fault handler (`:531`).
+    - Violations increment counters and `pr_warn` (`:218-225`).
   - Key files: `kernel/pex_main.c`, `tests/test_multithread_violation.c`.
 - **Feature D: Observability.**
   - What: live counters for entries, exits, faults, and protected nanoseconds, per context and globally.
   - How:
-    - Per-context counters sit in `struct pex_context` (`pex_main.c:37-41`); globals are `atomic64_t` (`:55-57`).
-    - They are exposed via `PEX_IOCTL_GET_CTX_INFO` (`:291-322`) and via world-readable `/proc/pex_stats` (mode `0444`, `:528`), which prints one page max (`:350,367`).
+    - Per-context counters sit in `struct pex_context` (`pex_main.c:40-44`); globals are `atomic64_t` (`:70-73`).
+    - They are exposed via `PEX_IOCTL_GET_CTX_INFO` (`:428-459`) and via world-readable `/proc/pex_stats` (mode `0444`, `:732`), which prints one page max (`:483,510`).
   - Key files: `kernel/pex_main.c`, `demo/pex_viewer.py:607-647`.
 - **Feature E: Console proof of blocking.**
   - What: a six-step script that shows SIGSEGV on an inactive touch, success when active, cross-thread enter denied, and SIGSEGV again after exit. It exits non-zero on any unexpected result.
@@ -222,30 +230,33 @@ There is no database. Everything below is in-memory kernel state or the ABI.
   - A mapping holds one context reference per VMA and one `mm_count` reference (`pex_main.c:491-529,561-565`).
 
 ## 7. Key Files Map
-- `kernel/pex_main.c` (722 lines): the kernel module. Context table, fd lifetime, ioctls, mmap/fault/VMA references, procfs, init/exit.
+- `kernel/pex_main.c` (791 lines): the kernel module. Context table, fd lifetime, ioctls, mmap/fault/VMA references, procfs, init/exit.
 - `kernel/Makefile` (11): kbuild wrapper; `KDIR ?= /lib/modules/$(uname -r)/build`.
-- `libpex/include/pex_uapi.h` (83): kernel↔user ABI (structs, enums, ioctl numbers); non-Linux type fallback at `:9-19`.
+- `libpex/include/pex_uapi.h` (88): kernel↔user ABI (structs, enums, ioctl numbers, quota constants); non-Linux type fallback at `:9-19`.
 - `libpex/include/pex.h` (35): public C API.
 - `libpex/src/pex.c` (165): thin wrappers over `open/ioctl/mmap/munmap`; returns `-errno`.
 - `libpex/Makefile` (22): builds `libpex.a` + `libpex.so` with `-fPIC`.
 - `examples/protected_workload.c` (69): minimal create → map → enter → write/compute → exit → info.
 - `examples/showcase_blocking.c` (232): the six-step blocking proof with signal recovery.
 - `tests/test_multithread_violation.c` (76): cross-thread enter must fail and the fault count must rise.
+- `tests/test_lifetime_cleanup.c` (174): fd-close, `SIGKILL`-of-active-mapped-child, and split-VMA teardown, each checked against the initial `/proc/pex_stats` counts. The split case asserts that page 1 is a distinct buffer page (`:113-118`).
+- `tests/test_access_limits.c` (265): unprivileged open denial, per-process and global context/byte quotas, and quota recovery after the holding fds close (retried for up to 500 ms, `:217-230`).
 - `tests/benchmark_entry_exit.c` (58): 10,000 enter/exit pairs, prints average ns. No mapping, no pass/fail threshold.
 - `demo/pex_viewer.py` (763): Tkinter viewer, ctypes bindings, XOR asset loader, PPM parser, `--self-check`.
 - `demo/assets/protected_image.enc.hex` (~3.5 MB): XOR-obfuscated hex of `assets/test.ppm`.
 - `assets/test.jpg`, `assets/test.ppm`: source images. **CONFIRMED:** no tracked C, header, Python, shell, or Makefile source references `test.jpg` (`experiments/logs/phase3-test-jpg-code-references.log`).
-- `scripts/dev_setup.sh` (58): root check, build if missing, unload/insmod, `mknod /dev/pex`, and `root:<authorized-group>` mode `0660`.
-- `scripts/run_all.sh` (29): host end-to-end build, load, and run of everything, then `cat /proc/pex_stats`.
+- `scripts/dev_setup.sh` (58): root check, build if missing, unload/insmod, `mknod /dev/pex`, and `root:<authorized-group>` mode `0660`. When `modprobe -r` fails it prints "reusing the existing module" and exits 0 without loading a newer build.
+- `scripts/run_all.sh` (31): host end-to-end build, load, and run of everything, then `cat /proc/pex_stats`.
 - `scripts/run_demo.sh` (24): build, load, then GUI, or `--self-check` if `$DISPLAY` is empty.
-- `Makefile` (55): top-level targets `all/lib/kernel/examples/tests/demo/load/unload/run-*`/`clean`.
+- `Makefile` (61): top-level targets `all/lib/kernel/examples/tests/demo/load/unload/run-*`/`clean`.
 - `buildroot/build_image.sh` (776): download/extract Buildroot, Darwin patches, defconfig, build, verify outputs.
 - `buildroot/run_qemu.sh` (202): boot the image in QEMU with rootfs integrity checks.
-- `buildroot/package/pex/pex.mk` (97), `Config.in`: Buildroot package recipe.
+- `buildroot/package/pex/pex.mk` (111), `Config.in`: Buildroot package recipe.
 - `buildroot/configs/pex_aarch64_virt_defconfig` (46), `buildroot/configs/linux.config` (90): image and kernel config.
 - `buildroot/overlay/etc/init.d/S99pex`, `overlay/opt/pex/dev_setup.sh`, `overlay/opt/pex/run_validation.sh`: boot-time load and validation.
 - `buildroot/buildroot-2024.02.12.tar.xz` (5.5 MB): vendored Buildroot source.
-- `docs/report.md` (263): project write-up.
+- `docs/report.md` (307): project write-up.
+- `docs/PROJECT_DOSSIER.md` (585-ish): this file. Committed to the repo; see the note in §12 about its visibility.
 - `samples/host` (17,984-byte x86-64 ELF): **stale binary from the pre-pivot design.** Its strings reference `libtee_sim.so`, `tee_create`, `./enclave.so`, and build path `/home/ubuntu/OS/SoftTEE`. Nothing builds or uses it. Added in `git:6513a83`.
 
 ## 8. Hardest Problems (STAR format)
@@ -281,6 +292,16 @@ The STAR prompts below are project-owner input. The git history provides the evi
 - **Problem 4: one ABI header for kernel, Linux userspace, and non-Linux compile (candidate from `git:b8c481e`, `git:6513a83`).**
   - Evidence: `#ifdef __KERNEL__` / `__linux__` branches (`pex_uapi.h:4-20`).
   - STAR: Unknown. Do not claim.
+- **Problem 5: a split mapping resolved faults to the wrong buffer page (found in review; fixed in `git:cdd2ddd`).**
+  - Evidence of the change:
+    - The lifetime patch added VMA `.open`/`.close` refcounting, which made `mprotect()` splits *supported* rather than rejected, because a split increments and decrements `vma_refs` correctly (`kernel/pex_main.c:559-591`).
+    - The fault handler still computed `offset = vmf->address - vma->vm_start`. For the upper VMA of a split, `vm_start` is `mapped_start + 4096`, so `offset` became 0 and the kernel installed **buffer page 0** where page 1 belongs.
+    - The existing split test read page 1 and discarded the value (`(void)mapping[page_size]`), so it passed either way. `vmalloc_user` returns zeroed pages, so even the aliased read returned 0 and nothing looked wrong.
+    - `cdd2ddd` computes `offset = vmf->address - ctx->mapped_start` (`kernel/pex_main.c:542`) and makes the test assert that page 1 does not read back page 0 (`tests/test_lifetime_cleanup.c:113-118`).
+  - Situation: after the lifetime patch, nothing prevented `mprotect()` from splitting the protected mapping, and the region then silently aliased: page 1 returned page 0's contents, and a write to page 1 corrupted page 0.
+  - What I tried that failed: the first version of the regression test touched page 1 but only cast the read to `void`, so it could not fail. Run against the unfixed module, it passed.
+  - What worked and why: I reproduced it by reverting only `kernel/pex_main.c`, force-reloading the module, and confirming the strengthened assertion failed (`split-VMA page 1 aliases page 0`, exit 1), then restored the fix and confirmed it passed. `scripts/dev_setup.sh` silently reuses a loaded module when `modprobe -r` fails, so I compared `modinfo -F srcversion kernel/pex.ko` with `/sys/module/pex/srcversion` before trusting either run.
+  - Result: split mappings resolve to the correct buffer page, and the regression fails without the fix and passes with it (2026-09-18, Ubuntu 24.04 / Linux 6.8.0-139-generic, aarch64).
 
 ## 9. Tradeoffs & Decisions
 Decisions below are **visible in code**. CONFIRMED items have run evidence; the rest are design reasoning.
@@ -322,7 +343,8 @@ Decisions below are **visible in code**. CONFIRMED items have run evidence; the 
 |--------|-------|--------------|------|
 | Avg enter+exit latency | **423.89 ns median** (min 380.56 ns; max 756.35 ns) across seven runs | `tests/benchmark_entry_exit`: seven independent runs of 10,000 `pex_enter`/`pex_exit` pairs timed with `CLOCK_MONOTONIC`; it prints `avg_enter_exit_ns` (`tests/benchmark_entry_exit.c:18,34-53`). No mapping is touched. Sorted raw results: `experiments/logs/phase1-benchmark-sorted-values-corrected.log`. | 2026-09-16, host Linux `6.8.0-40-generic` on a 2-vCPU Parallels aarch64 VM (`experiments/logs/phase0-uname.log`, `experiments/logs/phase0-lscpu.log`, `experiments/logs/phase0-systemd-detect-virt.log`) |
 | Avg enter+first-page-write+exit latency | **2126.75 ns median** (min 1723.79 ns; max 2235.60 ns) across seven runs | P4: a mapped 4096-byte context; 10,000 iterations of `pex_enter` → one-byte write to page 0 → `pex_exit`, timed with `CLOCK_MONOTONIC`. The prior exit zaps the PTE, so each following write takes the valid fault path. Sorted raw results: `experiments/logs/phase2-p4-sorted-values.log`. | 2026-09-16, same host as the row above (`experiments/logs/phase2-p4-sorted-values.log`) |
-| Lines in listed source/script files | about 3,451 lines across kernel, lib, examples, tests, viewer, scripts, and Buildroot files (`wc -l`, see §7) | `wc -l` at `6513a83` | 2026-09-16 draft |
+| Avg enter+exit latency, re-run at `cdd2ddd` | **343.64 ns median** (341.87 / 343.64 / 345.71) across three runs | Same stock benchmark, three consecutive runs on the `cdd2ddd` build. Single-run spread is not a confidence interval. | 2026-09-18, Ubuntu 24.04 / `6.8.0-139-generic` / aarch64 / 2 vCPU (same Parallels VM as above, but a different kernel build, so do not compare the two rows numerically) |
+| Lines in listed source/script files | about 4,328 lines across kernel, lib, examples, tests, viewer, scripts, and Buildroot files (`wc -l`, see §7) | `wc -l` at `cdd2ddd` | 2026-09-18 |
 
 Numbers come from experiments/logs (not committed to the repo). They are VM microbenchmarks, not production metrics; always quote them with what they measure.
 
@@ -334,12 +356,16 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
   2. `tests/benchmark_entry_exit.c`
      - Checks: timing only; exits 0 unless an ioctl fails (`:36-57`).
   3. `tests/test_lifetime_cleanup.c`
-     - Checks: the initial `/proc/pex_stats` live/active counts are restored after close-without-destroy, SIGKILL of a mapped active child, and split-VMA teardown. Source compiles; target-kernel execution is not yet recorded.
-  4. `examples/showcase_blocking.c`
+     - Checks: the initial `/proc/pex_stats` live/active counts are restored after close-without-destroy, SIGKILL of a mapped active child, and split-VMA teardown. The split case now asserts that page 1 of a split mapping is a distinct buffer page rather than an alias of page 0 (`:113-118`).
+     - Runtime verified on 2026-04-21 and again on 2026-09-18; the split assertion fails against the pre-`cdd2ddd` module and passes after it (§8, Problem 5).
+  4. `tests/test_access_limits.c`
+     - Checks: a child dropped to UID/GID 65534 cannot open `/dev/pex`; per-process context and byte quotas return `-EDQUOT`; global context and byte quotas return `-EDQUOT` at capacity and recover after the holding fds close. The recovery create retries for up to 500 ms (`:217-230`) because the final fd release can lag the holder's exit.
+     - Runtime verified on 2026-04-21 and 2026-09-18.
+  5. `examples/showcase_blocking.c`
      - Checks: inactive touch → signal; active touch → success; cross-thread enter denied; post-exit touch → signal. Returns 1 on any deviation (`:149-231`).
-  5. `examples/protected_workload.c`
+  6. `examples/protected_workload.c`
      - Checks: happy-path smoke test (`:21-68`).
-  6. `demo/pex_viewer.py --self-check`
+  7. `demo/pex_viewer.py --self-check`
      - Checks: create/map/enter/copy asset, rogue thread denied with a fault-count increase, wipe, exit (`:674-730`).
 - **How they are run:**
   - Host: `make run-tests` (`Makefile:40-43`) or `scripts/run_all.sh`.
@@ -364,9 +390,17 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
   - **Verdict:** these failures are environmental; the module could not be built or loaded here. They say nothing about kernel-side correctness. **Kernel-side behaviour was NOT exercised in this draft.**
   - The later verified host run is recorded above; no QEMU validation output is recorded. (`experiments/logs/phase1-protected-workload.log`, `experiments/logs/phase1-showcase-blocking.log`, `experiments/logs/phase1-test-multithread-violation.log`, `experiments/logs/phase1-viewer-self-check.log`)
 - **Current workspace source build (2026-04-21, uncommitted lifetime patch):** `make all` exited 0 on macOS and compiled `tests/test_lifetime_cleanup.c` with `-Wall -Wextra`; `sh -n buildroot/overlay/opt/pex/run_validation.sh` and `bash -n scripts/run_all.sh` exited 0. `make kernel` exited 2 because macOS has no `/lib/modules/27.0.0/build`, so the module and the new lifetime test were not run here. This is build-only evidence, not kernel runtime validation.
-- **Lifetime-patch VM run (2026-04-21):** On Ubuntu 24.04 with Linux `6.8.0-139-generic` and matching headers, `make kernel` and `make tests` exited 0 (with the pre-existing unused `pex_device` warning). After `sudo ./scripts/dev_setup.sh`, the baseline was `live_contexts=0`, `active_contexts=0`. `./tests/test_lifetime_cleanup` passed fd-close, active-map `SIGKILL`, and split-VMA scenarios; each restored the same zero baseline. `sudo rmmod pex` then succeeded. The manually created `/dev/pex` node was removed afterward. This validates the patch on that x86-64 VM; no aarch64 Buildroot/QEMU run is recorded.
+- **Lifetime-patch VM run (2026-04-21):** On Ubuntu 24.04 with Linux `6.8.0-139-generic` and matching headers, `make kernel` and `make tests` exited 0 (with the pre-existing unused `pex_device` warning). After `sudo ./scripts/dev_setup.sh`, the baseline was `live_contexts=0`, `active_contexts=0`. `./tests/test_lifetime_cleanup` passed fd-close, active-map `SIGKILL`, and split-VMA scenarios; each restored the same zero baseline. `sudo rmmod pex` then succeeded. The manually created `/dev/pex` node was removed afterward. This validates the patch on that aarch64 VM; no aarch64 Buildroot/QEMU run is recorded.
 - **Access-limit VM run (2026-04-21):** On the same Ubuntu 24.04 / Linux `6.8.0-139-generic` VM, the setup script created `/dev/pex` as `root:parallels` mode `0660`. `tests/test_access_limits` verified that a child dropped to UID/GID 65534 could not open it; per-process context and byte limits returned `-EDQUOT` after 8 and 2 successful creations respectively; global context and byte limits returned `-EDQUOT` at capacity and accepted a new allocation after the holder fds closed. Final stats were `live_contexts=0`, `live_bytes=0`, `active_contexts=0`. Existing non-root thread-policy and lifetime regressions still passed as user `parallels`. This is not an aarch64 Buildroot/QEMU run.
 - **Drafting check (x86-64 sandbox):** C `sizeof(struct pex_ctx_info)=64`, `offsetof(size)=24`, which matches Python `ctypes.sizeof(PexCtxInfo)=64`, offset 24. `pex_handle_t` = 24 bytes on both sides (x86-64).
+- **Re-verification run (2026-09-18) at `cdd2ddd`:** Ubuntu 24.04 / Linux `6.8.0-139-generic` / `aarch64` / 2 vCPU on the Parallels VM (`ubuntu-linux-2404`, `systemd-detect-virt` = `parallels`).
+  - `make lib kernel examples tests demo` exited 0 with **no compiler warnings**; the unused-`pex_device` warning is gone. `/dev/pex` was created `crw-rw---- root:parallels` (major 236).
+  - **The stale-module trap:** `scripts/dev_setup.sh` prints "reusing the existing module" and exits 0 when `modprobe -r pex` fails, so a test run can silently exercise the previous build. Both the fixed and unfixed runs below were made only after `rmmod pex && insmod kernel/pex.ko` and after confirming `modinfo -F srcversion kernel/pex.ko` matched `/sys/module/pex/srcversion`.
+  - **Bug proof:** with `cdd2ddd`'s `kernel/pex_main.c` reverted (module `F1DE80F8840604729AF26A3`, loaded and confirmed by srcversion), `tests/test_lifetime_cleanup` failed with `split-VMA page 1 aliases page 0` and the child failing, exit 1. With the fix restored (module `52BC5E319BB1B45E9C5C5D3`), the same test passed and each scenario restored `live_contexts=0 active_contexts=0`.
+  - `tests/test_multithread_violation` exited 0 (secondary-thread enter rc=-1, faults 0→1); `tests/test_access_limits` exited 0 (`unprivileged open: denied`; context-count 8 then `-EDQUOT`; byte-quota 2 then `-EDQUOT`; both global quotas denied then recovered after close); `tests/benchmark_entry_exit` reported 343.64 / 341.87 / 345.71 ns; `python3 demo/pex_viewer.py --self-check` exited 0 (`revealed_bytes=1769488 header=b'P6\n1024 576'`, rogue thread rc=-1 with faults 0→1, `after_exit active=0 entries=1 exits=1`).
+  - Final `/proc/pex_stats`: `live_contexts=0`, `live_bytes=0`, `active_contexts=0`.
+  - SHA-256 of the six changed files was compared between the editing host and the VM tree that ran the tests, so the commit is the code that was exercised.
+  - This is a host-Linux aarch64 VM run, **not** a Buildroot/QEMU result: the QEMU image path remains unrecorded.
 - **CI/CD:** none. There is no `.github/`, `.gitlab-ci.yml`, `.travis.yml`, `Jenkinsfile`, or CircleCI config.
 - **Error handling / logging:**
   - libpex returns `-errno` or `NULL` (`libpex/src/pex.c`).
@@ -376,36 +410,37 @@ Numbers come from experiments/logs (not committed to the repo). They are VM micr
 
 ## 12. Known Limitations & Bugs
 **Documented by the project itself:**
-- Not hardware-backed. Does not secure the display path or prevent screenshots. Does not mediate syscalls. No multi-process sharing. Relies on a loadable module. (`docs/report.md:203-209`; `README.md:21,28-35`)
-- The GUI decrypts the asset at startup, and the plaintext is copied out of protected memory into a normal display buffer (`README.md:28-35`; `demo/pex_viewer.py:335,557-559`).
+- Not hardware-backed. Does not secure the display path or prevent screenshots. Does not mediate syscalls. No multi-process sharing. Relies on a loadable module. (`docs/report.md:238-254`; `README.md:24-27,37-53`)
+- The GUI deobfuscates the asset at startup, and the plaintext is copied out of protected memory into a normal display buffer (`README.md:37-44`; `demo/pex_viewer.py:335,545-564`).
 
-**Review items, with status after the lifetime patch:**
+**Review items, with status after `cdd2ddd`:**
 | Item | Status at HEAD | Evidence |
 |---|---|---|
-| §1.1 context leaked if `copy_to_user` fails in create | Still present | `pex_main.c:123-132` |
-| §1.2 first ctx id is 2 | **CONFIRMED:** ID was 2 in each of three independent fresh-unload/reload trials | `pex_main.c:50,115`; `experiments/logs/phase2-p5-fresh-run-1.log`, `experiments/logs/phase2-p5-fresh-run-2.log`, `experiments/logs/phase2-p5-fresh-run-3.log` |
-| §1.3 ABBA deadlock between ctx mutex and mmap lock in exit | Lock order corrected in source; never run under lockdep (no log). | `pex_main.c:275-286`; `git:1685fb4` |
-| §1.4 `zap_vma_ptes` not version-guarded | **CONFIRMED for the shipped Linux 6.6 target:** the API exists and only acts on `VM_PFNMAP` VMAs, which PEX sets before use. No version guard is required for that target. | `kernel/pex_main.c:283,477`; `linux-v6.6/mm/memory.c:1681`, `linux-v6.6/mm/memory.c:1686` |
-| §1.6 no `.open` in `vm_ops` (VMA split refcount) | **Runtime verified on Ubuntu 24.04 / Linux 6.8.0-139-generic.** `pex_vma_open()` takes a kref and increments `vma_refs`; `pex_vma_close()` drops one ref and releases the `mm` only after the last VMA closes. The split-VMA regression restored zero live and active contexts. | `kernel/pex_main.c:491-529`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11 |
-| §1.8 `kref_put` → `vfree`/`mmput` under spinlock with IRQs off in module exit | **Implemented in source; indirect runtime evidence.** Module exit detaches contexts under the spinlock, then deactivates and releases them after unlocking. After the P3 crash-cleanup regression, `rmmod pex` succeeded on Ubuntu 24.04 / Linux 6.8.0-139-generic. | `kernel/pex_main.c:685-715`; 2026-04-21 VM run in §11 |
-| §2.3 `pex_fault_event` unused | Still present | `pex_uapi.h:66-74` |
+| §1.1 context leaked if `copy_to_user` fails in create | **FIXED in `git:cdd2ddd`.** The failure path unlinks the context and drops its reference, so no unreachable context is left behind. | `kernel/pex_main.c:287-293` |
+| Split mapping resolves faults to the wrong buffer page | **FOUND in review and FIXED in `git:cdd2ddd`.** Offsets are now measured from `ctx->mapped_start`, and the regression fails without the fix. | `kernel/pex_main.c:542`; `tests/test_lifetime_cleanup.c:113-118`; §8 Problem 5 |
+| §1.2 first ctx id is 2 | **CONFIRMED:** ID was 2 in each of three independent fresh-unload/reload trials | `pex_main.c:65,268`; `experiments/logs/phase2-p5-fresh-run-1.log`, `experiments/logs/phase2-p5-fresh-run-2.log`, `experiments/logs/phase2-p5-fresh-run-3.log` |
+| §1.3 ABBA deadlock between ctx mutex and mmap lock in exit | Lock order corrected in source; never run under lockdep (no log). | `pex_main.c:97-128`; `git:1685fb4` |
+| §1.4 `zap_vma_ptes` not version-guarded | **CONFIRMED for the shipped Linux 6.6 target:** the API exists and only acts on `VM_PFNMAP` VMAs, which PEX sets before use. No version guard is required for that target. `for_each_vma_range()` does require Linux 6.1+, which the README now states. | `kernel/pex_main.c:118-121,636`; `README.md:219-220`; `linux-v6.6/mm/memory.c:1681`, `linux-v6.6/mm/memory.c:1686` |
+| §1.6 no `.open` in `vm_ops` (VMA split refcount) | **Runtime verified on Ubuntu 24.04 / Linux 6.8.0-139-generic.** `pex_vma_open()` takes a kref and increments `vma_refs`; `pex_vma_close()` drops one ref and releases the `mm` only after the last VMA closes. The split-VMA regression restored zero live and active contexts. | `kernel/pex_main.c:559-591`; `tests/test_lifetime_cleanup.c`; 2026-04-21 VM run in §11 |
+| §1.8 `kref_put` → `vfree`/`mmput` under spinlock with IRQs off in module exit | **Implemented in source; indirect runtime evidence.** Module exit detaches contexts under the spinlock, then deactivates and releases them after unlocking. After the P3 crash-cleanup regression, `rmmod pex` succeeded on Ubuntu 24.04 / Linux 6.8.0-139-generic. | `kernel/pex_main.c:752-787`; 2026-04-21 VM run in §11 |
+| §2.3 `pex_fault_event` unused | Still present | `pex_uapi.h:71-79` |
 | §3.1 `pex_map` assumes 4 KB pages (`ctx_id << 12`) | Still present. Harmless on the shipped target (4 KB) | `libpex/src/pex.c:143`; `buildroot/configs/linux.config:41` |
-| §9.1 absolute doc links in README | Fixed: links are now relative | `README.md:179-180` |
+| §9.1 absolute doc links in README | Fixed: links are now relative | `README.md:232` |
 | §9.2 "docs/report.md doesn't exist" | **Stale claim.** The file exists | `docs/report.md` |
 
-**Runtime results (2026-09-16):**
+**Runtime results (2026-09-16, extended 2026-09-18):**
 - **Thread isolation is only enforced on the first touch of each page [CONFIRMED].** In every P1 run, after the owner faulted page 0 in while active, a second thread read page 0 successfully without a new fault; that same thread got SIGSEGV on untouched page 1, and again on page 0 after owner exit. `total_faults` rose only for the two blocked accesses per run (`experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`). This conflicts with the absolute owner-thread access wording in `docs/report.md:92-97`.
 - **The policy flag only gates enter [CONFIRMED].** With `policy_flags=0`, a secondary thread's enter returned 0, its mapped-memory touch received SIGSEGV, its exit returned -EPERM, and the owner's exit returned 0 in all three P2 runs (`experiments/logs/phase2-p2-run-1.log`, `experiments/logs/phase2-p2-run-2.log`, `experiments/logs/phase2-p2-run-3.log`). The code checks `owner_tid` unconditionally in exit and fault handling (`pex_main.c:255,393`). `docs/report.md:117,130` is therefore a conflict candidate.
 - **Fd-close and process-death cleanup [PRE-PATCH FAILURE CONFIRMED; PATCH RUNTIME VERIFIED].** In all three historical P7 runs, a context created without mapping or destroy remained visible as `live_contexts=1` after the process closed its fd (`experiments/logs/phase2-p7-proc-after-leak-1.log`, `experiments/logs/phase2-p7-proc-after-leak-2.log`, `experiments/logs/phase2-p7-proc-after-leak-3.log`). In historical P3, after SIGKILL of a mapped, active child, `live_contexts=1`, `active_contexts=1`, and `rmmod` failed with "Module pex is in use" (`experiments/logs/phase2-p3-proc-after-kill-1.log`, `experiments/logs/phase2-p3-rmmod-1.log`). On 2026-04-21, the current patch passed the fd-close, active-map `SIGKILL`, and split-VMA scenarios on Ubuntu 24.04 / Linux 6.8.0-139-generic; each restored `live_contexts=0`, `active_contexts=0`, and `rmmod pex` succeeded afterward. The source adds fd `.release`, removes that file’s contexts from the table, deactivates active contexts, zaps mapping PTEs, and replaces the long-lived `mmget` with `mmgrab`/`mmdrop` (`kernel/pex_main.c:72-164,561-619`; `tests/test_lifetime_cleanup.c`). This is not an aarch64 Buildroot/QEMU result.
 - **Mapped-active leak mechanism: outcome confirmed; exact causal chain remains unisolated.** The historical P3 outcome was consistent with an inferred `mmget`/context reference cycle, but the experiment did not independently prove that internal causal chain. The current regression verifies that the observed cleanup failure is fixed on Ubuntu 24.04 / Linux 6.8.0-139-generic; it does not prove the old causal explanation. (`experiments/logs/phase2-p3-run-1.log`, `experiments/logs/phase2-p3-rmmod-1.log`; `kernel/pex_main.c:72-79,491-529,561-565`)
-- **Device registration error path.** `device_create` failure returns `-ENOMEM` instead of `PTR_ERR` (`pex_main.c:523-525`).
-- **Unused local.** **CONFIRMED compiler warning:** `struct device *pex_device;` added in `git:ec888cb` (`pex_main.c:499`) triggered the unused-variable warning under kbuild. (`experiments/logs/phase1-make-kernel.log`)
+- **Split-mapping aliasing [FOUND IN REVIEW AND FIXED].** Once the `.open`/`.close` refcount pair made `mprotect()` splits *supported*, the fault handler's `offset = vmf->address - vma->vm_start` made the upper VMA resolve to buffer offset 0, so page 1 aliased page 0 and a write to page 1 corrupted page 0. Fixed in `git:cdd2ddd` by measuring from `ctx->mapped_start` (`kernel/pex_main.c:542`). The old split test read page 1 and discarded the value; the new assertion fails against the previous module and passes against the fix (2026-09-18 run in §11; §8 Problem 5).
+- **Device registration error path.** `device_create` failure returns `-ENOMEM` instead of `PTR_ERR` (`kernel/pex_main.c:727-730`).
+- **Unused local. FIXED in `git:cdd2ddd`.** `struct device *pex_device;` was added in `git:ec888cb` and triggered an unused-variable warning under kbuild (`experiments/logs/phase1-make-kernel.log`). It was removed in `cdd2ddd`; the 2026-09-18 build reports no compiler warnings.
 - **`PEX_POLICY_NO_FORK_INHERIT` is a no-op.** `VM_DONTCOPY` is always applied regardless of the flag (`pex_uapi.h:28`; `pex_main.c:477`).
 - **`/proc/pex_stats` limits.** It is world-readable and lists every process's context names and pids (`pex_main.c:528,363-366`). Output is capped at one page, so it truncates with many contexts (`:350,367`).
 - **Allocation authorization and resource limits [PRE-PATCH FAILURE CONFIRMED; PATCH RUNTIME VERIFIED].** Historical P6 showed that an unprivileged UID 1000 could create a context through world-writable `/dev/pex` (`experiments/logs/phase2-p6-run-1.log`, `experiments/logs/phase2-p6-run-2.log`, `experiments/logs/phase2-p6-run-3.log`). The patch creates the device as `root:<authorized-group>` mode `0660`, caps a context at 16 MiB, caps each process at 8 contexts / 16 MiB, and caps the module at 64 contexts / 64 MiB (`pex_uapi.h:20-24`; `kernel/pex_main.c:168-203`; setup scripts). On Ubuntu 24.04 / Linux 6.8.0-139-generic, an unprivileged child was denied at open; all four quotas returned `-EDQUOT` at capacity and recovered after fd close. Buildroot/QEMU remains untested.
-- **Viewer log text is inaccurate.**
-  - It says "mapped a single protected page" (`demo/pex_viewer.py:512`), but `MAP_SIZE = 2097152`, which is 512 pages at 4 KB (`:18`).
-  - It says "decrypted the PPM payload" on Enter (`:563`), but decryption happens at startup (`:335`). The README, report, and demo script were corrected; the viewer log itself still needs the small code cleanup.
+- **Viewer log text. FIXED in `git:cdd2ddd`.** It previously said "mapped a single protected page" (`MAP_SIZE = 2097152` is 512 pages at 4 KB, `demo/pex_viewer.py:18`) and "decrypted the PPM payload" on Enter (deobfuscation happens at startup, `:335`). All four strings now say "protected region" / "startup-deobfuscated" (`:512,563,584-585`).
+- **Crypto wording. FIXED in `git:cdd2ddd`.** `docs/report.md:276,307` and `README.md:39` now call the asset XOR-obfuscated and explicitly note it is not cryptographic encryption.
 - **Boot and host scripts hide failures.** `S99pex` always exits 0 (`overlay/etc/init.d/S99pex:28`). `scripts/run_all.sh` ignores example failures (`:20-21`).
 - **Stale committed binary.** `samples/host` is an x86-64 ELF from the deleted design (§7).
 - **Rootfs has an empty root password and DHCP on eth0** (`pex_aarch64_virt_defconfig:32-33`). Fine for a demo VM; worth knowing.
@@ -426,7 +461,7 @@ How this list was checked:
 - **No database or persistence of any kind.** State is in kernel memory only.
 - **No network service:** no HTTP API, no sockets, no server, no web frontend.
 - **No credential-level authentication.** Device access is restricted to root and the configured authorized group (`/dev/pex` mode `0660`), while context operations retain owner tgid/tid checks. There is no user database, ACL service, or per-context identity policy beyond those OS credentials.
-- **No real cryptography in the current code.** The demo "encryption" is XOR with a hard-coded key (`demo/pex_viewer.py:20`).
+- **No real cryptography in the current code.** The demo "encryption" is XOR with a hard-coded key (`demo/pex_viewer.py:20`). The docs and viewer log now say "obfuscated" rather than "encrypted" (`git:cdd2ddd`).
   - OpenSSL SHA-256 existed only in the **deleted** pre-pivot loader (`git:40446fe`, removed in `git:6fcf5bf`).
   - The only current "openssl" mention is Buildroot's kernel host-build flag (`pex_aarch64_virt_defconfig:21`).
 - **No attestation, measurement, or sealing.** The enclave hashing was removed in the pivot.
@@ -436,7 +471,7 @@ How this list was checked:
 - **No multi-process sharing or delegation of contexts** (`docs/report.md:208`).
 - **No secure display pipeline and no screenshot resistance** (`README.md:35`).
 - **No fork-policy implementation** (`PEX_POLICY_NO_FORK_INHERIT` unused) and **no fault-event stream API** (`pex_fault_event` unused).
-- **No aarch64 Buildroot/QEMU runtime result for the fd-close/process-exit cleanup hook.** The patch passed its regression on Ubuntu 24.04 / Linux 6.8.0-139-generic, but the shipped aarch64 image remains untested (`kernel/pex_main.c:592-619`; `tests/test_lifetime_cleanup.c`).
+- **No aarch64 Buildroot/QEMU runtime result for the fd-close/process-exit cleanup hook.** The patch passed its regression on the aarch64 Ubuntu 24.04 host VM (Linux 6.8.0-139-generic), but the shipped aarch64 Buildroot image booted under QEMU remains untested (`kernel/pex_main.c:659-688`; `tests/test_lifetime_cleanup.c`).
 - **No unit tests, KUnit, kselftest, pytest, gtest; no coverage; no sanitizers or Valgrind; no lockdep/KASAN run recorded.**
 - **No lint/format tooling config.**
 - **No LICENSE file** at the repo root. Licence intent appears only in `MODULE_LICENSE("GPL")` (`pex_main.c:575`) and `PEX_LICENSE = GPL-2.0` (`pex.mk:12`).
@@ -456,7 +491,8 @@ How this list was checked:
   - Remaining candidates grounded in §12:
     - use `page_size` rather than `<< 12` in `pex_map`;
     - make `NO_FORK_INHERIT` real or remove it;
-    - remove `pex_fault_event`, `samples/host`, and the unused `pex_device`;
+    - remove `pex_fault_event` and `samples/host`;
+    - make `scripts/dev_setup.sh` fail loudly (or force a reload) when a loaded module cannot be unloaded, instead of silently reusing the previous build;
     - have `S99pex` propagate failures;
     - add a CI job that at least runs `make all`.
 - **Documented future work** (not personal opinion): upstreaming, richer ownership policies, syscall filtering, structured fault records, hardware-assisted secure display/memory (`docs/report.md:211-219`).
@@ -469,18 +505,20 @@ How this list was checked:
 | Identified and documented limitations through probes, including first-touch-only same-process isolation and context leaks after abnormal process exit. | `experiments/logs/phase2-p1-run-1.log`, `experiments/logs/phase2-p1-run-2.log`, `experiments/logs/phase2-p1-run-3.log`, `experiments/logs/phase2-p3-proc-after-kill-1.log` |
 
 **Claims the code supports (use as raw material):**
-- Linux kernel module exposing a char device with 5 ioctls, `mmap`, a custom page-fault handler, and procfs stats: `kernel/pex_main.c:324-340,381-485,342-379`.
-- Fault-gated memory: PTEs zapped on exit, SIGSEGV on inactive access: `pex_main.c:277-286,393-396`; `examples/showcase_blocking.c:149-222`.
-- Owner-thread enforcement with fault accounting: `pex_main.c:206-210`; `tests/test_multithread_violation.c`.
+- Linux kernel module exposing a char device with 5 ioctls, `mmap`, a custom page-fault handler, and procfs stats: `kernel/pex_main.c:461-477,519-557,479-513`.
+- Fault-gated memory: PTEs zapped on exit, SIGSEGV on inactive access: `kernel/pex_main.c:97-128,526-531`; `examples/showcase_blocking.c:149-222`.
+- Split-safe mappings: the fault offset is measured from the start of the original mapping, so an `mprotect()` split still resolves each page correctly, with a regression that fails without the fix: `kernel/pex_main.c:542`; `tests/test_lifetime_cleanup.c:113-118`.
+- Owner-thread enforcement with fault accounting: `kernel/pex_main.c:367-368`; `tests/test_multithread_violation.c`.
+- Lifetime and quota hardening: fd-release teardown, `mmgrab`/`mmdrop` mapping ownership, VMA refcounting, per-process and global quotas: `kernel/pex_main.c:159-169,559-591,659-688`; `tests/test_access_limits.c`.
 - C runtime (static + shared) and a Python ctypes GUI: `libpex/`, `demo/pex_viewer.py`.
 - Buildroot/QEMU support code exists for a cross-compiled aarch64 image (Linux 6.6.87) that auto-runs a validation suite; no successful run is recorded — do not claim a run. (`buildroot/`)
 - macOS Buildroot support code exists; no successful run is recorded — do not claim a run. (`buildroot/build_image.sh:80-716`)
 
 **Claims to AVOID unless you add evidence:**
 - Any latency or overhead number other than the controlled host measurements in §10.
-- "Secure", "encrypted", or "TEE-grade" without qualification: XOR demo key, no hardware backing.
+- "Secure", "encrypted", or "TEE-grade" without qualification: the asset is XOR-obfuscated with a key stored in source, and there is no hardware backing. Docs use "obfuscated" as of `cdd2ddd`.
 - "Thread-isolated memory": only first-touch enforcement (confirmed in P1, §12).
-- Universal tests "passing" or CI: there is no CI. The named host baseline programs passed on 2026-09-16 (§11), but QEMU validation and race/memory-debug test runs remain unrecorded.
+- Universal tests "passing" or CI: there is no CI. The named host baseline programs passed on 2026-09-16 and the full suite passed again on 2026-09-18 (§11), but QEMU validation and race/memory-debug test runs remain unrecorded.
 - "Production", "users", "deployed".
 
 ## 16. Likely Interview Questions (my prepared answers)
@@ -496,7 +534,11 @@ How this list was checked:
     6. Counters are exposed through an info ioctl and `/proc/pex_stats`.
   - Evidence: §3 flow.
 - **Q: What was the hardest bug?**
-  - A: The hardest verified issue was making access revocation work after exit. I changed from returning `vmf->page` to `vmf_insert_pfn()` and marked the VMA `VM_PFNMAP`, which makes `zap_vma_ptes()` applicable; I also fixed the lock ordering. (`kernel/pex_main.c:275-286`, `kernel/pex_main.c:411-413`, `kernel/pex_main.c:477`, `linux-v6.6/mm/memory.c:1681-1693`)
+  - A: The hardest verified issue was making access revocation work after exit. I changed from returning `vmf->page` to `vmf_insert_pfn()` and marked the VMA `VM_PFNMAP`, which makes `zap_vma_ptes()` applicable; I also fixed the lock ordering. (`kernel/pex_main.c:97-128`, `kernel/pex_main.c:556`, `kernel/pex_main.c:636-638`, `linux-v6.6/mm/memory.c:1681-1693`)
+- **Q: What is the second-hardest bug, and how did you prove the fix?**
+  - A: A split-mapping aliasing bug I found by review after the lifetime patch. Making VMA `.open`/`.close` correct meant `mprotect()` splits were now supported, but the fault handler still measured `offset = vmf->address - vma->vm_start`, so the upper VMA resolved page 1 to buffer offset 0 and page 1 silently aliased page 0. I changed it to measure from `ctx->mapped_start` and strengthened the regression to assert page 1 does not read back page 0. I proved it by reverting only the kernel file, force-reloading the module, and showing the test fail before the fix and pass after. (`kernel/pex_main.c:542`; `tests/test_lifetime_cleanup.c:113-118`)
+- **Q: Did your tooling ever mislead you during testing?**
+  - A: Yes. `scripts/dev_setup.sh` reuses an already-loaded module when `modprobe -r` fails and still exits 0, so my first run of the "unfixed" build was actually exercising the previous module and passed. After that I forced `rmmod`/`insmod` and compared `modinfo -F srcversion kernel/pex.ko` with `/sys/module/pex/srcversion` before trusting any result. (`scripts/dev_setup.sh:31-42`)
 - **Q: How would you scale it?**
   - A: I would replace the single global lookup lock with finer-grained or RCU-based lookup, add per-process quotas, and measure many contexts and threads instead of only the ioctl pair. (`kernel/pex_main.c:24-29`, `kernel/pex_main.c:48-49`, `tests/benchmark_entry_exit.c:27-47`)
 - **Q: What would you change?**
@@ -577,9 +619,11 @@ How this list was checked:
 ## Appendix: Drafting checklist
 1. Resolve every remaining verification tag (search for `VERIFY` in this file).
 2. Set `Last verified by me` after personally reviewing this dossier; it is intentionally the only unresolved project-owner field.
-3. Host run done; QEMU run still unrecorded.
+3. Host run done (2026-09-16, refreshed 2026-09-18); QEMU run still unrecorded.
 4. Decide how to handle the **doc-vs-code CONFLICT candidates** before an interview:
-   - `docs/report.md:117,130` vs `pex_main.c:255,393` (thread-policy scope);
+   - `docs/report.md:117,130` vs `kernel/pex_main.c:413,531` (thread-policy scope);
    - `docs/report.md:92-97` vs first-touch-only enforcement;
-   - the viewer log says it "decrypted the PPM payload" on entry (`demo/pex_viewer.py:563`), while decryption happens at startup (`demo/pex_viewer.py:335`; `README.md:39`).
-5. Update "Last verified by me" and the commit hash whenever code changes.
+   - the "decrypted"/"encrypted" wording is resolved: the docs now say XOR-obfuscated, and the two viewer log strings were corrected in `cdd2ddd`.
+5. Decide the visibility question. This dossier is committed to the repository and contains prepared interview answers, resume bullets, "claims to avoid", and the unresolved `Last verified by me: [AUTHOR TO FILL]` field. Consider keeping a short `docs/LIMITATIONS.md` public and moving this file to a private gist or private repo. No change was made in this pass.
+6. Re-anchor the remaining `path:N` citations captured at `6513a83` / `0ddd59a`. The 2026-09-18 pass re-read only the sections it changed; older refs in §3-§7 and §16 still use the pre-`0ddd59a` numbering, and `kernel/pex_main.c` alone went 577 → 782 → 791 lines.
+7. Update "Last verified by me" and the commit hash whenever code changes.
