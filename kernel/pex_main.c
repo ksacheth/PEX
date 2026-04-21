@@ -230,7 +230,10 @@ static int pex_ctx_exit(struct pex_ctx_req __user *argp)
 {
     struct pex_ctx_req req;
     struct pex_context *ctx;
+    struct mm_struct *mapped_mm = NULL;
     unsigned long flags;
+    unsigned long mapped_start = 0;
+    unsigned long mapped_len = 0;
     int ret = 0;
     u64 now;
 
@@ -263,17 +266,24 @@ static int pex_ctx_exit(struct pex_ctx_req __user *argp)
     atomic64_dec(&g_active_contexts);
 
     if (ctx->mapped_mm && ctx->mapped_start && ctx->mapped_len) {
-        struct vm_area_struct *vma;
-
-        mmap_write_lock(ctx->mapped_mm);
-        vma = find_vma(ctx->mapped_mm, ctx->mapped_start);
-        if (vma && vma->vm_start == ctx->mapped_start && vma->vm_private_data == ctx)
-            zap_vma_ptes(vma, ctx->mapped_start, ctx->mapped_len);
-        mmap_write_unlock(ctx->mapped_mm);
+        mapped_mm = ctx->mapped_mm;
+        mapped_start = ctx->mapped_start;
+        mapped_len = ctx->mapped_len;
+        mmget(mapped_mm);
     }
 
 out:
     mutex_unlock(&ctx->lock);
+    if (mapped_mm) {
+        struct vm_area_struct *vma;
+
+        mmap_write_lock(mapped_mm);
+        vma = find_vma(mapped_mm, mapped_start);
+        if (vma && vma->vm_start == mapped_start && vma->vm_private_data == ctx)
+            zap_vma_ptes(vma, mapped_start, mapped_len);
+        mmap_write_unlock(mapped_mm);
+        mmput(mapped_mm);
+    }
     kref_put(&ctx->refcount, pex_ctx_release);
     return ret;
 }
@@ -374,6 +384,7 @@ static vm_fault_t pex_vma_fault(struct vm_fault *vmf)
     struct pex_context *ctx = vma->vm_private_data;
     unsigned long offset;
     struct page *page;
+    unsigned long pfn;
 
     if (!ctx)
         return VM_FAULT_SIGSEGV;
@@ -397,10 +408,9 @@ static vm_fault_t pex_vma_fault(struct vm_fault *vmf)
         return VM_FAULT_SIGBUS;
     }
 
-    get_page(page);
-    vmf->page = page;
+    pfn = page_to_pfn(page);
     mutex_unlock(&ctx->lock);
-    return 0;
+    return vmf_insert_pfn(vma, vmf->address & PAGE_MASK, pfn);
 }
 
 static void pex_vma_close(struct vm_area_struct *vma)
@@ -464,9 +474,9 @@ static int pex_mmap(struct file *file, struct vm_area_struct *vma)
     ctx->mapped_len = len;
 
     #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-    vm_flags_set(vma, VM_DONTCOPY | VM_DONTDUMP);
+    vm_flags_set(vma, VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_PFNMAP);
 #else
-    vma->vm_flags |= VM_DONTCOPY | VM_DONTDUMP;
+    vma->vm_flags |= VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_PFNMAP;
 #endif
     vma->vm_ops = &pex_vm_ops;
     vma->vm_private_data = ctx;

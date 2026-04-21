@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 import threading
 import time
@@ -13,13 +14,57 @@ except ModuleNotFoundError:
     tk = None
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-LIBPEX_PATH = ROOT_DIR / "libpex" / "libpex.so"
-ASSET_PATH = ROOT_DIR / "demo" / "assets" / "protected_image.enc.hex"
+SCRIPT_DIR = Path(__file__).resolve().parent
 MAP_SIZE = 2097152
 IMAGE_SCALE = 1
 XOR_KEY = b"PEX-DEMO-KEY"
 PEX_POLICY_OWNER_THREAD_ONLY = 1
+ASSET_NAME = "protected_image.enc.hex"
+
+
+def _first_existing_path(candidates: list[Path]) -> Path:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def resolve_libpex_path() -> Path:
+    env_path = os.environ.get("LIBPEX_PATH")
+    candidates: list[Path] = []
+
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.extend(
+        [
+            SCRIPT_DIR.parent / "libpex" / "libpex.so",
+            SCRIPT_DIR / "libpex.so",
+            Path("/usr/lib/libpex.so"),
+            Path("/usr/local/lib/libpex.so"),
+        ]
+    )
+    return _first_existing_path(candidates)
+
+
+def resolve_asset_path() -> Path:
+    env_path = os.environ.get("PEX_ASSET_PATH")
+    candidates: list[Path] = []
+
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.extend(
+        [
+            SCRIPT_DIR / "assets" / ASSET_NAME,
+            SCRIPT_DIR.parent / "demo" / "assets" / ASSET_NAME,
+        ]
+    )
+    return _first_existing_path(candidates)
+
+
+LIBPEX_PATH = resolve_libpex_path()
+ASSET_PATH = resolve_asset_path()
 
 
 class PexHandle(ctypes.Structure):

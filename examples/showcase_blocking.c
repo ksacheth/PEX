@@ -74,6 +74,7 @@ static void dump_proc_stats(void)
 
 struct thread_args {
     pex_handle_t *h;
+    int *thread_rc;
 };
 
 static void *cross_thread_enter(void *arg)
@@ -81,6 +82,8 @@ static void *cross_thread_enter(void *arg)
     struct thread_args *a = (struct thread_args *)arg;
     int rc = pex_enter(a->h);
 
+    if (a->thread_rc)
+        *a->thread_rc = rc;
     printf("[thread] pex_enter rc=%d (expected < 0 due to owner-thread policy)\n", rc);
     return NULL;
 }
@@ -89,6 +92,7 @@ int main(int argc, char **argv)
 {
     int sleep_s = 1;
     int rc;
+    int failed = 0;
     pex_handle_t h;
     volatile unsigned long *region;
 
@@ -146,6 +150,7 @@ int main(int argc, char **argv)
     int fault_sig = guarded_write_ul(region, 0x1111UL);
     if (fault_sig == 0) {
         printf("  Unexpected: write succeeded while context inactive\n");
+        failed = 1;
     } else {
         printf("  Blocked: got signal %d (%s) from kernel fault gating\n",
             fault_sig,
@@ -170,10 +175,13 @@ int main(int argc, char **argv)
     if (fault_sig == 0) {
         if (guarded_read_ul(region, &v) == 0)
             printf("  Allowed: region[0]=0x%lx\n", v);
-        else
+        else {
             printf("  Unexpected: read blocked inside active context (sig=%d)\n", (int)g_sig);
+            failed = 1;
+        }
     } else {
         printf("  Unexpected: write blocked inside active context (sig=%d)\n", fault_sig);
+        failed = 1;
     }
     print_ctx_info(&h);
     dump_proc_stats();
@@ -181,26 +189,37 @@ int main(int argc, char **argv)
 
     printf("Step 5: start cross-thread pex_enter while active (should be denied)\n");
     pthread_t t;
-    struct thread_args a = {.h = &h};
+    int thread_rc = 0;
+    struct thread_args a = {.h = &h, .thread_rc = &thread_rc};
     rc = pthread_create(&t, NULL, cross_thread_enter, &a);
-    if (rc)
+    if (rc) {
         printf("  pthread_create failed rc=%d\n", rc);
-    else
+        failed = 1;
+    } else {
         pthread_join(t, NULL);
+        if (thread_rc >= 0) {
+            printf("  Unexpected: secondary thread entered protected mode\n");
+            failed = 1;
+        }
+    }
     print_ctx_info(&h);
     dump_proc_stats();
     sleep(sleep_s);
 
     printf("Step 6: exit context and touch again (should SIGSEGV)\n");
     rc = pex_exit(&h);
-    if (rc)
+    if (rc) {
         printf("  pex_exit failed rc=%d\n", rc);
+        failed = 1;
+    }
 
     fault_sig = guarded_write_ul(region, 0x3333UL);
-    if (fault_sig == 0)
+    if (fault_sig == 0) {
         printf("  Unexpected: write succeeded while context inactive after exit\n");
-    else
+        failed = 1;
+    } else {
         printf("  Blocked again: got signal %d\n", fault_sig);
+    }
 
     print_ctx_info(&h);
     dump_proc_stats();
@@ -209,5 +228,5 @@ int main(int argc, char **argv)
     pex_unmap(&h);
     pex_destroy(&h);
     pex_close(&h);
-    return 0;
+    return failed ? 1 : 0;
 }
