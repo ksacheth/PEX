@@ -509,7 +509,7 @@ class PexViewerApp:
         self.runtime.open()
         self.runtime.create("viewer_ctx", PEX_POLICY_OWNER_THREAD_ONLY)
         self.mapped_addr = self.runtime.map()
-        self.log("Created viewer_ctx and mapped a single protected page.")
+        self.log(f"Created viewer_ctx and mapped a {MAP_SIZE // (1024 * 1024)} MiB protected region.")
         self.set_placeholder()
         self.refresh_stats()
 
@@ -560,7 +560,7 @@ class PexViewerApp:
         self.active = True
         self.set_image(bytes(self.display_buffer), locked=False)
         self.status_var.set("Protected image is visible. Memory access is enabled for the owner thread.")
-        self.log("Entered protected mode, decrypted the PPM payload, and rendered the protected image.")
+        self.log("Entered protected mode, copied the startup-deobfuscated payload into the mapping, and rendered the protected image.")
         self.refresh_stats()
 
     def exit_protected_mode(self) -> None:
@@ -581,8 +581,8 @@ class PexViewerApp:
         self._wipe_display_buffer()
         self.active = False
         self.set_placeholder()
-        self.status_var.set("Protected mode exited. The image is locked again and the protected page is inaccessible.")
-        self.log("Exited protected mode, zeroized the protected page, and restored the locked placeholder.")
+        self.status_var.set("Protected mode exited. The image is locked again and the protected region is inaccessible.")
+        self.log("Exited protected mode, zeroized the protected mapping, and restored the locked placeholder.")
         self.refresh_stats()
 
     def trigger_rogue_thread(self) -> None:

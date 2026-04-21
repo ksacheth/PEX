@@ -184,6 +184,7 @@ static int expect_global_quota(const char *name, size_t holder_size,
     unsigned int started = 0;
     int fd = -1;
     int rc;
+    int attempt;
 
     for (started = 0; started < holder_count; started++) {
         if (start_holder(name, holder_size, contexts_per_holder,
@@ -212,16 +213,21 @@ static int expect_global_quota(const char *name, size_t holder_size,
     }
     started = 0;
 
-    fd = open(PEX_DEVICE_PATH, O_RDWR);
-    if (fd < 0 || create_context(fd, "quota_recovery", recovery_size)) {
-        fprintf(stderr, "%s quota did not recover after close\n", name);
+    /* The last fd release can lag the holder's exit; retry briefly. */
+    for (attempt = 0; attempt < 50; attempt++) {
+        fd = open(PEX_DEVICE_PATH, O_RDWR);
+        if (fd >= 0 && !create_context(fd, "quota_recovery", recovery_size)) {
+            close(fd);
+            printf("%s: global quota denied, then recovered after close\n", name);
+            return 0;
+        }
         if (fd >= 0)
             close(fd);
-        return -1;
+        usleep(10000);
     }
-    close(fd);
-    printf("%s: global quota denied, then recovered after close\n", name);
-    return 0;
+
+    fprintf(stderr, "%s quota did not recover after close\n", name);
+    return -1;
 
 out_release:
     if (fd >= 0)

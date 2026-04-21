@@ -69,7 +69,7 @@ The implementation contains four main layers:
    console programs for validation, blocked-memory proof, thread-policy faults,
    lifetime cleanup, access/limit enforcement, and performance measurement
 4. `demo/pex_viewer.py`
-   Tkinter demonstration that copies a startup-decrypted bundled image into the mapping after entry, then reveals a normal display-buffer copy
+   Tkinter demonstration that copies a startup-deobfuscated bundled image into the mapping after entry, then reveals a normal display-buffer copy
 
 ## 6. Architecture
 
@@ -213,7 +213,7 @@ The repository contains seven concrete evaluation scenarios:
 3. thread-policy enforcement
    `tests/test_multithread_violation.c` verifies that a secondary thread cannot enter the owner-thread-only context and that fault counters rise
 4. protected-media reveal
-   `demo/pex_viewer.py` copies a startup-decrypted PPM into the mapping after entry and reveals a normal display-buffer copy
+   `demo/pex_viewer.py` copies a startup-deobfuscated PPM into the mapping after entry and reveals a normal display-buffer copy
 5. context lifetime
    `tests/test_lifetime_cleanup.c` checks close-without-destroy, `SIGKILL` while mapped and active, and split-VMA teardown against the initial `/proc/pex_stats` counts
 6. access control and resource limits
@@ -241,7 +241,7 @@ PEX is intentionally a software prototype and has important limits:
 
 - it is not hardware-backed trusted execution
 - it does not prevent screenshots or secure the display pipeline
-- it decrypts the bundled image in user space at viewer startup and renders a
+- it deobfuscates the bundled image in user space at viewer startup and renders a
   normal display-buffer copy
 - it does not provide durable thread-local memory isolation: a page already
   faulted in by the creator may be readable by another thread in the same
@@ -273,7 +273,7 @@ The result is not a replacement for hardware TEEs or a complete in-process isola
 
 ### 19.1 Protected Media Reveal Simulation
 
-The windowed demo uses an encrypted bundled PPM asset. It decrypts that asset in user space during viewer startup. Outside protected mode, the window shows a locked placeholder. After `pex_enter()`, the owner thread copies the already-decrypted bytes into the 2 MiB protected mapping, copies them again into a normal display buffer, and reveals the image. After `pex_exit()`, the mapping and display buffer are zeroized and the image disappears again.
+The windowed demo uses an XOR-obfuscated bundled PPM asset (not cryptographic encryption). It deobfuscates that asset in user space during viewer startup. Outside protected mode, the window shows a locked placeholder. After `pex_enter()`, the owner thread copies the already-deobfuscated bytes into the 2 MiB protected mapping, copies them again into a normal display buffer, and reveals the image. After `pex_exit()`, the mapping and display buffer are zeroized and the image disappears again.
 
 This demonstrates controlled reveal of sensitive content. It does not claim true screenshot prevention or hardware-backed secure display.
 
@@ -304,4 +304,4 @@ This teaching prototype is suitable for demonstrations of:
 - context lifecycle control
 - fault-gated access after exit
 - denied cross-thread entry attempts
-- encrypted-asset reveal simulations without secure-display claims
+- obfuscated-asset reveal simulations without secure-display claims

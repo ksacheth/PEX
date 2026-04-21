@@ -36,7 +36,7 @@ not hardware-backed trusted execution or complete in-process isolation.
 
 The viewer is a protected-reveal demo, not a secure display pipeline:
 
-- the bundled image asset is decrypted in user space during startup
+- the bundled image asset is only XOR-obfuscated; the viewer deobfuscates it in user space during startup
 - on `pex_enter()`, the plaintext image bytes are copied into the protected mapping
 - the UI then copies those bytes into a normal display buffer for rendering
 - on `pex_exit()`, the protected buffer and display buffer are wiped and the placeholder returns
@@ -216,7 +216,8 @@ dmesg | tail -n 50
 
 For the host workflow:
 
-- Linux with matching kernel headers
+- Linux 6.1 or newer with matching kernel headers (the module uses
+  `for_each_vma_range()`, with version guards for the 6.3 and 6.4 APIs)
 - `make`, a C compiler, and standard build tools
 - root or `sudo` access for module loading
 - Python 3 with Tkinter for the viewer

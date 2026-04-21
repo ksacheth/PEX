@@ -109,7 +109,12 @@ static void split_then_destroy(void)
     }
 
     mapping[0] = 0x3c;
-    (void)mapping[page_size];
+    /* Page 1 is a distinct buffer page and must not read back page 0. */
+    if (mapping[page_size] == 0x3c) {
+        fprintf(stderr, "split-VMA page 1 aliases page 0\n");
+        pex_close(&handle);
+        _exit(1);
+    }
     if (pex_exit(&handle) || pex_unmap(&handle) || pex_destroy(&handle)) {
         pex_close(&handle);
         _exit(1);

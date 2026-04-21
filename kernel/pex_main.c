@@ -284,8 +284,13 @@ static int pex_ctx_create(struct file *file, struct pex_create_req __user *argp)
     req.out_ctx_id = ctx->ctx_id;
     req.out_reserved = 0;
 
-    if (copy_to_user(argp, &req, sizeof(req)))
+    if (copy_to_user(argp, &req, sizeof(req))) {
+        spin_lock_irqsave(&g_ctx_table_lock, flags);
+        pex_ctx_unlink_locked(ctx);
+        spin_unlock_irqrestore(&g_ctx_table_lock, flags);
+        kref_put(&ctx->refcount, pex_ctx_release);
         return -EFAULT;
+    }
     return 0;
 
 out_unlock_create:
@@ -529,7 +534,12 @@ static vm_fault_t pex_vma_fault(struct vm_fault *vmf)
         return VM_FAULT_SIGSEGV;
     }
 
-    offset = vmf->address - vma->vm_start;
+    /*
+     * Offsets are relative to the start of the original mapping, not to
+     * this VMA: mprotect() can split the mapping, and the upper VMA then
+     * has a vm_start that does not correspond to buffer offset zero.
+     */
+    offset = vmf->address - ctx->mapped_start;
     if (offset >= ctx->size) {
         mutex_unlock(&ctx->lock);
         return VM_FAULT_SIGBUS;
@@ -691,7 +701,6 @@ static const struct file_operations pex_fops = {
 static int __init pex_init(void)
 {
     int ret;
-    struct device *pex_device;
 
     hash_init(g_ctx_table);
 
